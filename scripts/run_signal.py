@@ -24,7 +24,9 @@ Options
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -39,6 +41,8 @@ from src.live.signal import load_signal_models, predict
 _INTERVALS = ["1m", "5m", "15m", "1h", "4h"]
 _BAR_SECONDS = 5 * 60   # 5-minute bar
 _POST_CLOSE_DELAY = 5   # seconds after bar close before fetching
+
+_stop = threading.Event()  # set by SIGTERM to request a clean shutdown
 
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -187,20 +191,27 @@ def main() -> None:
 
     # Loop mode: wait for each bar close
     print("Loop mode — waiting for 5m bar close …  (Ctrl+C to stop)\n")
+    _is_tty = sys.stdout.isatty()
+    signal.signal(signal.SIGTERM, lambda *_: _stop.set())
     try:
-        while True:
+        while not _stop.is_set():
             deadline = time.time() + _seconds_to_next_bar()
-            while True:
-                remaining = int(deadline - time.time())
-                if remaining <= 0:
-                    break
-                m, s = divmod(remaining, 60)
-                label = f"{m}m {s:02d}s" if m else f"{s}s"
-                print(f"  [next bar in {label:>6}]  ", end="\r", flush=True)
-                time.sleep(1)
-            run_once(long_models, short_models, args.threshold, session)
+            if _is_tty:
+                while not _stop.is_set():
+                    remaining = int(deadline - time.time())
+                    if remaining <= 0:
+                        break
+                    m, s = divmod(remaining, 60)
+                    label = f"{m}m {s:02d}s" if m else f"{s}s"
+                    print(f"  [next bar in {label:>6}]  ", end="\r", flush=True)
+                    _stop.wait(timeout=1)
+            else:
+                _stop.wait(timeout=max(0.0, deadline - time.time()))
+            if not _stop.is_set():
+                run_once(long_models, short_models, args.threshold, session)
     except KeyboardInterrupt:
         print("\n\n[停止]")
+    finally:
         session.print_summary()
 
 
