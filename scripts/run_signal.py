@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""
+Live signal monitor — Phase 2.
+
+Fetches the latest ETH/USDT 5m bar, computes features, runs the model,
+and prints the calibrated signal probability.
+
+Usage
+-----
+# Run once immediately
+python scripts/run_signal.py --once
+
+# Loop every 5 minutes (waits for bar close + 5s)
+python scripts/run_signal.py
+
+Options
+-------
+--threshold FLOAT   Signal threshold (default 0.60)
+--model-dir PATH    Path to model directory (default models/)
+--once              Run once and exit instead of looping
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.live.fetcher import fetch_klines, fetch_funding_rate
+from src.live.indicator import compute_live_features
+from src.live.signal import load_signal_models, predict
+
+_INTERVALS = ["1m", "5m", "15m", "1h", "4h"]
+_BAR_SECONDS = 5 * 60   # 5-minute bar
+_POST_CLOSE_DELAY = 5   # seconds after bar close before fetching
+
+
+# ── Session state ─────────────────────────────────────────────────────────────
+
+class _Session:
+    def __init__(self, threshold: float):
+        self.threshold  = threshold
+        self.bars_checked = 0
+        self.signals: list[tuple[str, float]] = []  # (timestamp_str, prob)
+        self.started_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    def record(self, ts: str, prob: float) -> None:
+        self.bars_checked += 1
+        if prob >= self.threshold:
+            self.signals.append((ts, prob))
+
+    def print_summary(self) -> None:
+        n_sig  = len(self.signals)
+        n_bars = self.bars_checked
+        rate   = f"{100 * n_sig / n_bars:.1f}%" if n_bars else "—"
+        recent = "  ".join(
+            f"{ts[-8:-4]} ({p:.2f})" for ts, p in self.signals[-3:]
+        ) or "—"
+        print("─" * 58)
+        print(
+            f"  运行开始 {self.started_at}"
+        )
+        print(
+            f"  已检查 {n_bars} bars  |  触发信号 {n_sig} 次  |  信号率 {rate}"
+        )
+        if self.signals:
+            print(f"  最近信号: {recent}")
+        print("─" * 58)
+
+
+# ── Core run-once logic ────────────────────────────────────────────────────────
+
+def run_once(
+    model_cls, model_max, model_min, calibrator, feature_cols,
+    threshold: float,
+    session: _Session,
+) -> None:
+    """Fetch → features → infer → print for the current bar."""
+    # 1. Fetch data
+    try:
+        klines = {tf: fetch_klines(tf) for tf in _INTERVALS}
+        funding_rate = fetch_funding_rate()
+    except Exception as exc:
+        print(f"[ERROR] Fetch failed: {exc}")
+        return
+
+    # 2. Compute features
+    feature_row = compute_live_features(klines, funding_rate)
+    if feature_row.empty:
+        print("[WARN] Feature row is empty — skipping.")
+        return
+
+    bar_ts = feature_row.index[-1]
+    ts_str = bar_ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+    price  = float(klines["5m"]["close"].iloc[-1])
+
+    # 3. Infer
+    try:
+        prob = predict(feature_row, model_cls, calibrator, feature_cols)
+    except Exception as exc:
+        print(f"[ERROR] Inference failed: {exc}")
+        return
+
+    # 4. Print signal line
+    if prob != prob:  # NaN check
+        status = "NaN (warmup)"
+    elif prob >= threshold:
+        status = f"FIRE  prob={prob:.4f} ✓"
+    else:
+        status = f"--    prob={prob:.4f}"
+
+    print(f"\n{ts_str}  price={price:.2f}  {status}")
+
+    # 5. Update session and print summary
+    if prob == prob:  # skip NaN from summary
+        session.record(ts_str, prob)
+    session.print_summary()
+
+
+# ── Timing helper ─────────────────────────────────────────────────────────────
+
+def _seconds_to_next_bar() -> float:
+    """Seconds until the next 5m bar close + post-close delay."""
+    now = time.time()
+    bar_close = (now // _BAR_SECONDS + 1) * _BAR_SECONDS
+    return max(0.0, bar_close - now + _POST_CLOSE_DELAY)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Live ETH/USDT signal monitor")
+    parser.add_argument("--threshold", type=float, default=0.60)
+    parser.add_argument("--model-dir", type=Path, default=Path("models"))
+    parser.add_argument(
+        "--once", action="store_true",
+        help="Run once immediately and exit",
+    )
+    args = parser.parse_args()
+
+    print("Loading models …")
+    try:
+        model_cls, model_max, model_min, calibrator, feature_cols = \
+            load_signal_models(args.model_dir)
+    except Exception as exc:
+        print(f"[ERROR] Failed to load models: {exc}")
+        sys.exit(1)
+    print(f"Models loaded. Threshold={args.threshold}  Features={len(feature_cols)}")
+
+    session = _Session(threshold=args.threshold)
+
+    if args.once:
+        run_once(model_cls, model_max, model_min, calibrator,
+                 feature_cols, args.threshold, session)
+        return
+
+    # Loop mode: wait for each bar close
+    print("Loop mode — waiting for 5m bar close …  (Ctrl+C to stop)\n")
+    try:
+        while True:
+            wait = _seconds_to_next_bar()
+            print(f"  [next bar in {wait:.0f}s]", end="\r", flush=True)
+            time.sleep(wait)
+            run_once(model_cls, model_max, model_min, calibrator,
+                     feature_cols, args.threshold, session)
+    except KeyboardInterrupt:
+        print("\n\n[停止]")
+        session.print_summary()
+
+
+if __name__ == "__main__":
+    main()
