@@ -230,7 +230,12 @@ def run(
     # ── 8. Filter flags ───────────────────────────────────────────────────────
     merged = _add_filter_flags(merged)
 
-    # ── 9. Summary ────────────────────────────────────────────────────────────
+    # ── 9. Attach raw 5m OHLC (for backtest TP/SL simulation) ────────────────
+    # Prefixed price_ so they are never picked up as model features.
+    for col in ["open", "high", "low", "close"]:
+        merged[f"price_{col}"] = df_5m[col].reindex(base_index)
+
+    # ── 10. Summary ───────────────────────────────────────────────────────────
     n_total = len(merged)
     n_weekend = merged["is_weekend"].sum()
     n_bs = merged["is_black_swan"].sum()
@@ -246,7 +251,7 @@ def run(
     log.info("  Feature columns : %d", merged.shape[1])
 
     # ── 10. Save ──────────────────────────────────────────────────────────────
-    log.info("Writing Parquet → %s", output_path)
+    log.info("Writing Parquet → %s  (%d columns)", output_path, merged.shape[1])
     merged.to_parquet(output_path, engine="pyarrow", compression="snappy")
     log.info("Done.  File size: %.1f MB", output_path.stat().st_size / 1e6)
 

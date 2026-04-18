@@ -83,13 +83,10 @@ def main() -> None:
     print(f"Loading features …")
     df = pd.read_parquet(args.input)
 
-    data_root = Path("data/raw")
-
     engine = BacktestEngine(cfg)
     trades, equity_curve = engine.run(
         df=df,
         model_dir=args.models,
-        data_root=data_root,
         start_date=args.start,
         end_date=args.end,
     )

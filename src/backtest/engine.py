@@ -28,8 +28,6 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBClassifier, XGBRegressor
 
-from src.features.loader import load_klines
-
 log = logging.getLogger(__name__)
 
 # ─── Config ──────────────────────────────────────────────────────────────────
@@ -126,7 +124,6 @@ class BacktestEngine:
         self,
         df: pd.DataFrame,
         model_dir: Path,
-        data_root: Path | None = None,
         start_date: str | None = None,
         end_date:   str | None = None,
     ) -> tuple[list[Trade], pd.DataFrame]:
@@ -135,9 +132,8 @@ class BacktestEngine:
 
         Parameters
         ----------
-        df         : features parquet DataFrame (full, with is_weekend/is_black_swan)
+        df         : features parquet DataFrame (must contain price_open/high/low/close columns)
         model_dir  : directory containing model artifacts
-        data_root  : path to data/raw directory; used to load 5m OHLC for TP/SL simulation
         start_date : optional ISO date to restrict backtest start
         end_date   : optional ISO date to restrict backtest end
 
@@ -150,12 +146,12 @@ class BacktestEngine:
         if self._model_cls is None:
             self.load_models(model_dir)
 
-        # Load raw 5m OHLC for price simulation
-        if data_root is not None:
-            log.info("Loading raw 5m klines for TP/SL simulation …")
-            klines_5m = load_klines("5m", Path(data_root))
-        else:
-            klines_5m = None
+        # Check if parquet contains embedded OHLC columns
+        has_ohlc = all(c in df.columns for c in ["price_open", "price_high", "price_low", "price_close"])
+        if not has_ohlc:
+            log.warning("price_open/high/low/close columns not found in DataFrame. "
+                        "TP/SL simulation will be close-only (less accurate). "
+                        "Re-run build_features.py to embed OHLC into the parquet.")
 
         # ── Filter eligible rows ──────────────────────────────────────────────
         mask = (df["is_weekend"] == 0) & (df["is_black_swan"] == 0) & df["y_class"].notna()
@@ -177,11 +173,6 @@ class BacktestEngine:
         signal_times = probs[signal_mask].index
         log.info("Signals: %d  (threshold=%.2f)", len(signal_times), self.cfg.signal_threshold)
 
-        # ── Build 5m OHLC reference ────────────────────────────────────────────
-        # Use raw klines if available (more accurate TP/SL),
-        # otherwise fall back to close-only (less accurate, no intra-bar check).
-        has_ohlc = klines_5m is not None
-
         # ── Simulate trades ───────────────────────────────────────────────────
         trades: list[Trade] = []
         equity = self.cfg.initial_equity
@@ -193,9 +184,9 @@ class BacktestEngine:
             if in_position and sig_time <= position_end:
                 continue
 
-            # Entry: next 5m bar open — approximate as current close + slippage
-            if has_ohlc and sig_time in klines_5m.index:
-                entry_price_raw = klines_5m.at[sig_time, "close"]
+            # Entry: approximate as current bar's close + slippage
+            if has_ohlc:
+                entry_price_raw = df.at[sig_time, "price_close"]
             else:
                 entry_price_raw = np.nan
             if np.isnan(entry_price_raw):
@@ -222,11 +213,9 @@ class BacktestEngine:
 
             for bar_ts in future_idx:
                 if has_ohlc:
-                    if bar_ts not in klines_5m.index:
-                        continue
-                    bar_high  = klines_5m.at[bar_ts, "high"]
-                    bar_low   = klines_5m.at[bar_ts, "low"]
-                    bar_close = klines_5m.at[bar_ts, "close"]
+                    bar_high  = df.at[bar_ts, "price_high"]
+                    bar_low   = df.at[bar_ts, "price_low"]
+                    bar_close = df.at[bar_ts, "price_close"]
                 else:
                     bar_close = np.nan
                     bar_high  = bar_close
@@ -246,10 +235,7 @@ class BacktestEngine:
             else:
                 # Timeout: exit at last bar's close
                 last_ts = future_idx[-1]
-                if has_ohlc and last_ts in klines_5m.index:
-                    last_close = klines_5m.at[last_ts, "close"]
-                else:
-                    last_close = np.nan
+                last_close = df.at[last_ts, "price_close"] if has_ohlc else np.nan
                 exit_price  = last_close * (1 - self.cfg.slippage) if not np.isnan(last_close) else entry_price
                 exit_time   = last_ts
                 exit_reason = "timeout"
