@@ -5,7 +5,7 @@ CLI entry point for the training pipeline.
 Usage
 -----
     python scripts/train_model.py \\
-        --input data/processed/features_thr005_h30.parquet \\
+        --input data/processed/features_thr005_h30_long.parquet \\
         --output models/ \\
         --n-folds 6 \\
         --gap-days 5
@@ -36,7 +36,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=Path,
-        default=Path("data/processed/features_thr005_h30.parquet"),
+        default=Path("data/processed/features_thr005_h30_long.parquet"),
         metavar="PATH",
         help="Path to input features parquet file.",
     )

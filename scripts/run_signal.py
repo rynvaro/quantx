@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -80,10 +81,18 @@ def run_once(
     session: _Session,
 ) -> None:
     """Fetch → features → infer → print for the current bar."""
-    # 1. Fetch data
+    # 1. Fetch data (parallel — all 5 intervals + funding rate concurrently)
     try:
-        klines = {tf: fetch_klines(tf) for tf in _INTERVALS}
-        funding_rate = fetch_funding_rate()
+        with ThreadPoolExecutor(max_workers=len(_INTERVALS) + 1) as pool:
+            kline_futures = {pool.submit(fetch_klines, tf): tf for tf in _INTERVALS}
+            funding_future = pool.submit(fetch_funding_rate)
+
+            klines: dict = {}
+            for fut in as_completed(kline_futures):
+                tf = kline_futures[fut]
+                klines[tf] = fut.result()   # raises on fetch error
+
+            funding_rate = funding_future.result()
     except Exception as exc:
         print(f"[ERROR] Fetch failed: {exc}")
         return
@@ -162,9 +171,15 @@ def main() -> None:
     print("Loop mode — waiting for 5m bar close …  (Ctrl+C to stop)\n")
     try:
         while True:
-            wait = _seconds_to_next_bar()
-            print(f"  [next bar in {wait:.0f}s]", end="\r", flush=True)
-            time.sleep(wait)
+            deadline = time.time() + _seconds_to_next_bar()
+            while True:
+                remaining = int(deadline - time.time())
+                if remaining <= 0:
+                    break
+                m, s = divmod(remaining, 60)
+                label = f"{m}m {s:02d}s" if m else f"{s}s"
+                print(f"  [next bar in {label:>6}]  ", end="\r", flush=True)
+                time.sleep(1)
             run_once(model_cls, model_max, model_min, calibrator,
                      feature_cols, args.threshold, session)
     except KeyboardInterrupt:

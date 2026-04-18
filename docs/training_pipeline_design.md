@@ -2,7 +2,7 @@
 
 ## 1. 目标
 
-基于 `features_thr005_h30.parquet`（threshold=0.5%，horizon=30min，21.9% 正类率），训练三个独立模型头，构成完整的 Calm-Trigger/Spring 交易信号系统。
+基于 `features_thr005_h30_long.parquet`（threshold=0.5%，horizon=30min，21.9% 正类率），训练三个独立模型头，构成完整的 Calm-Trigger/Spring 交易信号系统。
 
 ---
 
@@ -124,7 +124,7 @@ load parquet
 
 ```bash
 python scripts/train_model.py \
-    --input data/processed/features_thr005_h30.parquet \
+    --input data/processed/features_thr005_h30_long.parquet \
     --output models/ \
     --n-folds 6 \
     --gap-days 5

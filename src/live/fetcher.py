@@ -39,7 +39,7 @@ _FLOAT_COLS = [
 ]
 
 
-def _get(path: str, params: dict, timeout: int = 10) -> dict | list:
+def _get(path: str, params: dict, timeout: int = 30) -> dict | list:
     url = _BASE_URL + path
     resp = requests.get(url, params=params, timeout=timeout)
     resp.raise_for_status()

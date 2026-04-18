@@ -12,7 +12,7 @@
     ↓  Step 1: 下载数据
 data/raw/
     ↓  Step 2: 特征工程
-data/processed/features_thr005_h30.parquet
+data/processed/features_thr005_h30_long.parquet
     ↓  Step 3: 训练模型
 models/ (model_cls.json / model_max.json / model_min.json / calibrator.pkl)
     ↓  Step 4: 回测验证
@@ -66,7 +66,7 @@ python scripts/download_data.py
   - `src/features/timeframe.py` — 多周期特征合并（1m/5m/15m/1h/4h 对齐到 5m 时间轴）
   - `src/features/labels.py` — 生成标签（y_class / y_max / y_min）
   - `src/features/pipeline.py` — 上述模块的编排入口
-- **输出**：`data/processed/features_thr005_h30.parquet`（约 340MB）
+- **输出**：`data/processed/features_thr005_h30_long.parquet`（约 340MB）
 
 ### 执行指令
 ```bash
@@ -121,7 +121,7 @@ Step 1 完成（`data/raw/` 目录存在且数据完整）
 ### 执行指令
 ```bash
 python scripts/train_model.py \
-    --input  data/processed/features_thr005_h30.parquet \
+    --input  data/processed/features_thr005_h30_long.parquet \
     --output models/
 ```
 
@@ -200,7 +200,7 @@ Step 2 完成（parquet 文件存在）
 ```bash
 # 标准回测（OOS 区间，推荐 threshold）
 python scripts/run_backtest.py \
-    --input     data/processed/features_thr005_h30.parquet \
+    --input     data/processed/features_thr005_h30_long.parquet \
     --models    models/ \
     --start     2024-04-01 \
     --threshold 0.60
@@ -216,7 +216,7 @@ python scripts/run_backtest.py --start 2024-04-01 --end 2024-12-31
 ### 完整 CLI 参数
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `--input` | `data/processed/features_thr005_h30.parquet` | features 文件路径 |
+| `--input` | `data/processed/features_thr005_h30_long.parquet` | features 文件路径 |
 | `--models` | `models/` | 模型目录 |
 | `--start` | 无（全量） | 回测开始日期 |
 | `--end` | 无（全量） | 回测结束日期 |
@@ -275,7 +275,7 @@ quantx/
 │   │   │   └── 4h/     ← Step 1 下载
 │   │   └── funding_rate/  ← Step 1 下载
 │   └── processed/
-│       └── features_thr005_h30.parquet  ← Step 2 生成（340MB）
+│       └── features_thr005_h30_long.parquet  ← Step 2 生成（340MB）
 │
 ├── models/                ← Step 3 生成（已 gitignore）
 │   ├── model_cls.json
@@ -323,7 +323,7 @@ python scripts/build_features.py --threshold 0.005 --horizon 30
 
 # 3. 训练模型（约 2 分钟）
 python scripts/train_model.py \
-    --input  data/processed/features_thr005_h30.parquet \
+    --input  data/processed/features_thr005_h30_long.parquet \
     --output models/
 
 # 4. 回测验证（约 10–15 秒）

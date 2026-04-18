@@ -6,14 +6,14 @@ Usage
 -----
     # Backtest on the full val zone (2024-04 to 2026-03, walk-forward OOS data)
     python scripts/run_backtest.py \\
-        --input  data/processed/features_thr005_h30.parquet \\
+        --input  data/processed/features_thr005_h30_long.parquet \\
         --models models/ \\
         --start  2024-04-01 \\
         --threshold 0.60
 
     # Try different TP/SL settings
     python scripts/run_backtest.py \\
-        --input data/processed/features_thr005_h30.parquet \\
+        --input data/processed/features_thr005_h30_long.parquet \\
         --models models/ \\
         --start 2024-04-01 \\
         --threshold 0.60 \\
@@ -43,7 +43,7 @@ def _parse_args() -> argparse.Namespace:
         description="Run backtest on features parquet using trained models.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--input",     type=Path, default=Path("data/processed/features_thr005_h30.parquet"))
+    parser.add_argument("--input",     type=Path, default=Path("data/processed/features_thr005_h30_long.parquet"))
     parser.add_argument("--models",    type=Path, default=Path("models/"))
     parser.add_argument("--start",     type=str,  default=None,  metavar="YYYY-MM-DD")
     parser.add_argument("--end",       type=str,  default=None,  metavar="YYYY-MM-DD")
