@@ -62,10 +62,6 @@ class _Session:
         n_long  = len(self.long_signals)
         n_short = len(self.short_signals)
         n_bars  = self.bars_checked
-        rate   = f"{100 * n_sig / n_bars:.1f}%" if n_bars else "—"
-        recent = "  ".join(
-            f"{ts[-8:-4]} ({p:.2f})" for ts, p in self.signals[-3:]
-        ) or "—"
         print("─" * 58)
         print(f"  运行开始 {self.started_at}")
         print(
