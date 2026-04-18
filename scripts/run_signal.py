@@ -15,9 +15,10 @@ python scripts/run_signal.py
 
 Options
 -------
---threshold FLOAT   Signal threshold (default 0.60)
---model-dir PATH    Path to model directory (default models/long/)
---once              Run once and exit instead of looping
+--threshold FLOAT        Signal threshold (default 0.60)
+--long-model-dir PATH    Path to long model directory (default models/long/)
+--short-model-dir PATH   Path to short model directory (default models/short/)
+--once                   Run once and exit instead of looping
 """
 
 from __future__ import annotations
@@ -76,11 +77,12 @@ class _Session:
 # ── Core run-once logic ────────────────────────────────────────────────────────
 
 def run_once(
-    model_cls, model_max, model_min, calibrator, feature_cols,
+    long_models:  tuple,  # (model_cls, model_max, model_min, calibrator, feature_cols)
+    short_models: tuple,
     threshold: float,
     session: _Session,
 ) -> None:
-    """Fetch → features → infer → print for the current bar."""
+    """Fetch → features → infer both directions → print for the current bar."""
     # 1. Fetch data (parallel — all 5 intervals + funding rate concurrently)
     try:
         with ThreadPoolExecutor(max_workers=len(_INTERVALS) + 1) as pool:
@@ -97,7 +99,7 @@ def run_once(
         print(f"[ERROR] Fetch failed: {exc}")
         return
 
-    # 2. Compute features
+    # 2. Compute features (shared for both directions)
     feature_row = compute_live_features(klines, funding_rate)
     if feature_row.empty:
         print("[WARN] Feature row is empty — skipping.")
@@ -107,26 +109,32 @@ def run_once(
     ts_str = bar_ts.strftime("%Y-%m-%d %H:%M:%S UTC")
     price  = float(klines["5m"]["close"].iloc[-1])
 
-    # 3. Infer
-    try:
-        prob = predict(feature_row, model_cls, calibrator, feature_cols)
-    except Exception as exc:
-        print(f"[ERROR] Inference failed: {exc}")
-        return
+    # 3. Infer — long and short independently
+    def _infer(models: tuple) -> float:
+        model_cls, _, _, calibrator, feature_cols = models
+        try:
+            return predict(feature_row, model_cls, calibrator, feature_cols)
+        except Exception as exc:
+            print(f"[ERROR] Inference failed: {exc}")
+            return float("nan")
 
-    # 4. Print signal line
-    if prob != prob:  # NaN check
-        status = "NaN (warmup)"
-    elif prob >= threshold:
-        status = f"FIRE  prob={prob:.4f} ✓"
-    else:
-        status = f"--    prob={prob:.4f}"
+    long_prob  = _infer(long_models)
+    short_prob = _infer(short_models)
 
-    print(f"\n{ts_str}  price={price:.2f}  {status}")
+    # 4. Print signal lines
+    def _fmt(prob: float) -> str:
+        if prob != prob:  # NaN
+            return "NaN (warmup)          "
+        mark = "\u2713" if prob >= threshold else " "
+        label = "FIRE" if prob >= threshold else "--  "
+        return f"{label}  prob={prob:.4f} {mark}"
+
+    print(f"\n{ts_str}  price={price:.2f}")
+    print(f"  LONG  {_fmt(long_prob)}")
+    print(f"  SHORT {_fmt(short_prob)}")
 
     # 5. Update session and print summary
-    if prob == prob:  # skip NaN from summary
-        session.record(ts_str, prob)
+    session.record(ts_str, long_prob, short_prob)
     session.print_summary()
 
 
@@ -143,8 +151,9 @@ def _seconds_to_next_bar() -> float:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Live ETH/USDT signal monitor")
-    parser.add_argument("--threshold", type=float, default=0.60)
-    parser.add_argument("--model-dir", type=Path, default=Path("models/long"))
+    parser.add_argument("--threshold",       type=float, default=0.60)
+    parser.add_argument("--long-model-dir",  type=Path,  default=Path("models/long"))
+    parser.add_argument("--short-model-dir", type=Path,  default=Path("models/short"))
     parser.add_argument(
         "--once", action="store_true",
         help="Run once immediately and exit",
@@ -153,18 +162,20 @@ def main() -> None:
 
     print("Loading models …")
     try:
-        model_cls, model_max, model_min, calibrator, feature_cols = \
-            load_signal_models(args.model_dir)
+        long_models  = load_signal_models(args.long_model_dir)
+        short_models = load_signal_models(args.short_model_dir)
     except Exception as exc:
         print(f"[ERROR] Failed to load models: {exc}")
         sys.exit(1)
-    print(f"Models loaded. Threshold={args.threshold}  Features={len(feature_cols)}")
+    print(
+        f"Models loaded. Threshold={args.threshold}  "
+        f"Features(long)={len(long_models[4])}  Features(short)={len(short_models[4])}"
+    )
 
     session = _Session(threshold=args.threshold)
 
     if args.once:
-        run_once(model_cls, model_max, model_min, calibrator,
-                 feature_cols, args.threshold, session)
+        run_once(long_models, short_models, args.threshold, session)
         return
 
     # Loop mode: wait for each bar close
@@ -180,8 +191,7 @@ def main() -> None:
                 label = f"{m}m {s:02d}s" if m else f"{s}s"
                 print(f"  [next bar in {label:>6}]  ", end="\r", flush=True)
                 time.sleep(1)
-            run_once(model_cls, model_max, model_min, calibrator,
-                     feature_cols, args.threshold, session)
+            run_once(long_models, short_models, args.threshold, session)
     except KeyboardInterrupt:
         print("\n\n[停止]")
         session.print_summary()
