@@ -5,10 +5,10 @@ LOG_DIR  := logs
 LOG_FILE := $(LOG_DIR)/signal.log
 PID_FILE := $(LOG_DIR)/signal.pid
 
-.PHONY: init start start-bg stop status logs restart
+.PHONY: init start start-bg stop status logs restart _logs_dir
 
 ## init    — create .venv and install dependencies
-init: | $(LOG_DIR)
+init: | _logs_dir
 	@$(PYTHON) -c "import sys; v=sys.version_info; ok=v>=(3,12); \
 	    print(f'Python {v.major}.{v.minor}.{v.micro}  ✓' if ok else \
 	          f'[WARN] Python {v.major}.{v.minor} detected — 3.12+ recommended')"
@@ -27,7 +27,7 @@ start:
 	$(PYTHON) $(SCRIPT)
 
 ## start-bg — run in background, log to logs/signal.log
-start-bg: | $(LOG_DIR)
+start-bg: | _logs_dir
 	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
 		echo "Already running (PID $$(cat $(PID_FILE)))"; \
 	else \
@@ -81,5 +81,5 @@ logs:
 ## restart — stop then start in background
 restart: stop start-bg
 
-$(LOG_DIR):
+_logs_dir:
 	mkdir -p $(LOG_DIR)
