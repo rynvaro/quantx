@@ -31,7 +31,7 @@ start-bg: | _logs_dir
 	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
 		echo "Already running (PID $$(cat $(PID_FILE)))"; \
 	else \
-		nohup $(PYTHON) $(SCRIPT) >> $(LOG_FILE) 2>&1 & \
+		nohup $(PYTHON) -u $(SCRIPT) >> $(LOG_FILE) 2>&1 & \
 		echo $$! > $(PID_FILE); \
 		echo "Started (PID $$(cat $(PID_FILE))) — log: $(LOG_FILE)"; \
 	fi
