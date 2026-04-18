@@ -1,10 +1,22 @@
-PYTHON   := python
+PYTHON   := python3.12
+VENV     := .venv
 SCRIPT   := scripts/run_signal.py
 LOG_DIR  := logs
 LOG_FILE := $(LOG_DIR)/signal.log
 PID_FILE := $(LOG_DIR)/signal.pid
 
-.PHONY: start start-bg stop status logs restart
+.PHONY: init start start-bg stop status logs restart
+
+## init    — create .venv and install dependencies
+init: | $(LOG_DIR)
+	@if [ ! -d $(VENV) ]; then \
+		$(PYTHON) -m venv $(VENV); \
+		echo "Created $(VENV)"; \
+	fi
+	$(VENV)/bin/pip install --upgrade pip -q
+	$(VENV)/bin/pip install -r requirements.txt
+	@echo ""
+	@echo "Done. Activate with: source $(VENV)/bin/activate"
 
 ## start   — run in foreground (Ctrl-C to stop)
 start:

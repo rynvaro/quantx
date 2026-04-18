@@ -128,6 +128,7 @@ Makefile                 start / stop / status / logs / restart
 
 | Target | Action |
 |---|---|
+| `make init` | Create `.venv` and `pip install -r requirements.txt` |
 | `make start` | Run `run_signal.py` in foreground with countdown |
 | `make start-bg` | Start as background daemon; PID → `logs/signal.pid` |
 | `make stop` | Send SIGTERM, wait up to 5 s for clean exit |
@@ -140,15 +141,9 @@ Makefile                 start / stop / status / logs / restart
 ## Setup (new machine)
 
 ```bash
-# 1. clone
 git clone <repo-url> quantx && cd quantx
-
-# 2. create virtual environment
-python3.12 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-
-# 3. install dependencies
-pip install -r requirements.txt
+make init                              # creates .venv + pip install -r requirements.txt
+source .venv/bin/activate
 ```
 
 Then proceed from **Quick Start Step 1** above.
