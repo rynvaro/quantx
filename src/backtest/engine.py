@@ -10,8 +10,8 @@ Each eligible 5m bar is a potential entry signal. The engine:
 
 Assumptions
 -----------
-- Long-only, one position at a time (no pyramiding)
-- Entry: market order at next 5m bar open + slippage
+- One position at a time (no pyramiding), long or short
+- Entry: market order at signal bar's close + slippage
 - Exit: either TP/SL hit within horizon, or market close at horizon end
 - Position sizing: fixed margin per trade (25% of current equity)
 - Leverage: 75x
@@ -52,6 +52,9 @@ class BacktestConfig:
     # Costs
     fee_rate:       float  = 0.0004  # taker 0.04% per side
     slippage:       float  = 0.0003  # 0.03% per side
+
+    # Direction: 'long' or 'short'
+    direction:      str        = "long"
 
     # Filter: only trade during these UTC hours (None = all hours)
     active_hours:   list[int] | None = None
@@ -192,10 +195,16 @@ class BacktestEngine:
             if np.isnan(entry_price_raw):
                 continue
 
-            # Apply entry slippage (buy higher)
-            entry_price = entry_price_raw * (1 + self.cfg.slippage)
-            tp_price = entry_price * (1 + self.cfg.take_profit)
-            sl_price = entry_price * (1 - self.cfg.stop_loss)
+            if self.cfg.direction == "long":
+                # Buy: fill at close + slippage; profit from price rising
+                entry_price = entry_price_raw * (1 + self.cfg.slippage)
+                tp_price = entry_price * (1 + self.cfg.take_profit)
+                sl_price = entry_price * (1 - self.cfg.stop_loss)
+            else:
+                # Sell short: fill at close - slippage; profit from price falling
+                entry_price = entry_price_raw * (1 - self.cfg.slippage)
+                tp_price = entry_price * (1 - self.cfg.take_profit)
+                sl_price = entry_price * (1 + self.cfg.stop_loss)
 
             margin   = self.cfg.initial_equity * self.cfg.margin_pct  # fixed, no compounding
             notional = margin * self.cfg.leverage
@@ -221,22 +230,43 @@ class BacktestEngine:
                     bar_high  = bar_close
                     bar_low   = bar_close
 
-                # Check SL first (pessimistic: SL before TP within same bar)
-                if bar_low <= sl_price:
-                    exit_price  = sl_price * (1 - self.cfg.slippage)  # fill worse
-                    exit_time   = bar_ts
-                    exit_reason = "sl"
-                    break
-                elif bar_high >= tp_price:
-                    exit_price  = tp_price * (1 - self.cfg.slippage)  # slight slippage on limit
-                    exit_time   = bar_ts
-                    exit_reason = "tp"
-                    break
+                if self.cfg.direction == "long":
+                    # SL: price drops to sl_price; TP: price rises to tp_price
+                    # Check SL first (pessimistic)
+                    if bar_low <= sl_price:
+                        exit_price  = sl_price * (1 - self.cfg.slippage)
+                        exit_time   = bar_ts
+                        exit_reason = "sl"
+                        break
+                    elif bar_high >= tp_price:
+                        exit_price  = tp_price * (1 - self.cfg.slippage)
+                        exit_time   = bar_ts
+                        exit_reason = "tp"
+                        break
+                else:
+                    # Short — SL: price rises to sl_price; TP: price falls to tp_price
+                    # Check SL first (pessimistic)
+                    if bar_high >= sl_price:
+                        exit_price  = sl_price * (1 + self.cfg.slippage)
+                        exit_time   = bar_ts
+                        exit_reason = "sl"
+                        break
+                    elif bar_low <= tp_price:
+                        exit_price  = tp_price * (1 + self.cfg.slippage)
+                        exit_time   = bar_ts
+                        exit_reason = "tp"
+                        break
             else:
                 # Timeout: exit at last bar's close
                 last_ts = future_idx[-1]
                 last_close = df.at[last_ts, "price_close"] if has_ohlc else np.nan
-                exit_price  = last_close * (1 - self.cfg.slippage) if not np.isnan(last_close) else entry_price
+                if not np.isnan(last_close):
+                    # Long timeout: cover at close - slippage (we sell to exit)
+                    # Short timeout: cover at close + slippage (we buy to exit)
+                    slip_dir = -1 if self.cfg.direction == "long" else +1
+                    exit_price = last_close * (1 + slip_dir * self.cfg.slippage)
+                else:
+                    exit_price = entry_price
                 exit_time   = last_ts
                 exit_reason = "timeout"
 
@@ -244,7 +274,10 @@ class BacktestEngine:
                 continue
 
             fee_out = notional * self.cfg.fee_rate
-            ret = (exit_price - entry_price) / entry_price
+            if self.cfg.direction == "long":
+                ret = (exit_price - entry_price) / entry_price
+            else:
+                ret = (entry_price - exit_price) / entry_price
             pnl = notional * ret - fee_in - fee_out
 
             equity += pnl
