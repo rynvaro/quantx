@@ -1,4 +1,4 @@
-PYTHON   := python3.12
+PYTHON   := python3
 VENV     := .venv
 SCRIPT   := scripts/run_signal.py
 LOG_DIR  := logs
@@ -9,6 +9,9 @@ PID_FILE := $(LOG_DIR)/signal.pid
 
 ## init    — create .venv and install dependencies
 init: | $(LOG_DIR)
+	@$(PYTHON) -c "import sys; v=sys.version_info; ok=v>=(3,12); \
+	    print(f'Python {v.major}.{v.minor}.{v.micro}  ✓' if ok else \
+	          f'[WARN] Python {v.major}.{v.minor} detected — 3.12+ recommended')"
 	@if [ ! -d $(VENV) ]; then \
 		$(PYTHON) -m venv $(VENV); \
 		echo "Created $(VENV)"; \
