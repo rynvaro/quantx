@@ -137,8 +137,23 @@ Makefile                 start / stop / status / logs / restart
 
 ---
 
+## Setup (new machine)
+
+```bash
+# 1. clone
+git clone <repo-url> quantx && cd quantx
+
+# 2. create virtual environment
+python3.12 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+# 3. install dependencies
+pip install -r requirements.txt
+```
+
+Then proceed from **Quick Start Step 1** above.
+
 ## Requirements
 
 - Python 3.12
-- xgboost >= 3.2
-- scikit-learn, pandas, numpy, requests
+- See [requirements.txt](requirements.txt) for pinned versions
