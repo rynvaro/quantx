@@ -29,6 +29,8 @@ log = logging.getLogger(__name__)
 FEATURE_COLS_EXCLUDE = {
     "y_class", "y_max", "y_min",
     "is_weekend", "is_black_swan",
+    # OHLC columns embedded in parquet for backtest use only — not available at inference
+    "price_open", "price_high", "price_low", "price_close",
 }
 
 

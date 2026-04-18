@@ -47,30 +47,41 @@ class _Session:
     def __init__(self, threshold: float):
         self.threshold  = threshold
         self.bars_checked = 0
-        self.signals: list[tuple[str, float]] = []  # (timestamp_str, prob)
+        self.long_signals:  list[tuple[str, float]] = []  # (timestamp_str, prob)
+        self.short_signals: list[tuple[str, float]] = []
         self.started_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    def record(self, ts: str, prob: float) -> None:
+    def record(self, ts: str, long_prob: float, short_prob: float) -> None:
         self.bars_checked += 1
-        if prob >= self.threshold:
-            self.signals.append((ts, prob))
+        if long_prob == long_prob and long_prob >= self.threshold:   # NaN-safe
+            self.long_signals.append((ts, long_prob))
+        if short_prob == short_prob and short_prob >= self.threshold:
+            self.short_signals.append((ts, short_prob))
 
     def print_summary(self) -> None:
-        n_sig  = len(self.signals)
-        n_bars = self.bars_checked
+        n_long  = len(self.long_signals)
+        n_short = len(self.short_signals)
+        n_bars  = self.bars_checked
         rate   = f"{100 * n_sig / n_bars:.1f}%" if n_bars else "—"
         recent = "  ".join(
             f"{ts[-8:-4]} ({p:.2f})" for ts, p in self.signals[-3:]
         ) or "—"
         print("─" * 58)
+        print(f"  运行开始 {self.started_at}")
         print(
-            f"  运行开始 {self.started_at}"
+            f"  已检查 {n_bars} bars  |  "
+            f"LONG 触发 {n_long} 次  |  SHORT 触发 {n_short} 次"
         )
-        print(
-            f"  已检查 {n_bars} bars  |  触发信号 {n_sig} 次  |  信号率 {rate}"
-        )
-        if self.signals:
-            print(f"  最近信号: {recent}")
+        if self.long_signals:
+            recent = "  ".join(
+                f"{ts[-8:-4]} ({p:.2f})" for ts, p in self.long_signals[-3:]
+            )
+            print(f"  最近 LONG : {recent}")
+        if self.short_signals:
+            recent = "  ".join(
+                f"{ts[-8:-4]} ({p:.2f})" for ts, p in self.short_signals[-3:]
+            )
+            print(f"  最近 SHORT: {recent}")
         print("─" * 58)
 
 
