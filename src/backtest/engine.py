@@ -41,8 +41,10 @@ class BacktestConfig:
 
     # Capital
     initial_equity: float  = 312.0   # USDT
-    margin_pct:     float  = 0.25    # fraction of equity per trade
+    margin_pct:     float  = 0.25    # fraction of INITIAL equity per trade (fixed sizing)
     leverage:       float  = 75.0
+    # Fixed margin per trade = initial_equity * margin_pct (does NOT compound).
+    # This gives realistic PnL without runaway compounding in backtests.
 
     # Exit rules
     take_profit:    float  = 0.008   # 0.8% from entry (ETH price move)
@@ -204,7 +206,7 @@ class BacktestEngine:
             tp_price = entry_price * (1 + self.cfg.take_profit)
             sl_price = entry_price * (1 - self.cfg.stop_loss)
 
-            margin   = equity * self.cfg.margin_pct
+            margin   = self.cfg.initial_equity * self.cfg.margin_pct  # fixed, no compounding
             notional = margin * self.cfg.leverage
             fee_in   = notional * self.cfg.fee_rate
 
