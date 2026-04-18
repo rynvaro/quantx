@@ -9,6 +9,9 @@ Usage
         --output models/long/ \\
         --n-folds 6 \\
         --gap-days 5
+
+    # Train short model (auto-infers input/output from --direction)
+    python scripts/train_model.py --direction short
 """
 
 import argparse
@@ -34,18 +37,24 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
+        "--direction",
+        choices=["long", "short"],
+        default="long",
+        help="Trade direction. Controls default --input and --output paths.",
+    )
+    parser.add_argument(
         "--input",
         type=Path,
-        default=Path("data/processed/features_thr005_h30_long.parquet"),
+        default=None,
         metavar="PATH",
-        help="Path to input features parquet file.",
+        help="Path to input features parquet (default: auto from --direction).",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("models/long"),
+        default=None,
         metavar="DIR",
-        help="Directory to save model artifacts.",
+        help="Directory to save model artifacts (default: auto from --direction).",
     )
     parser.add_argument(
         "--n-folds",
@@ -74,13 +83,19 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
 
-    if not args.input.exists():
-        print(f"ERROR: input file not found: {args.input}", file=sys.stderr)
+    # Auto-infer input/output from direction if not explicitly provided
+    _DATA_DIR = Path("data/processed")
+    _MODELS_DIR = Path("models")
+    input_path = args.input or _DATA_DIR / f"features_thr005_h30_{args.direction}.parquet"
+    output_dir = args.output or _MODELS_DIR / args.direction
+
+    if not input_path.exists():
+        print(f"ERROR: input file not found: {input_path}", file=sys.stderr)
         sys.exit(1)
 
     run(
-        parquet_path=args.input,
-        output_dir=args.output,
+        parquet_path=input_path,
+        output_dir=output_dir,
         n_folds=args.n_folds,
         val_months=args.val_months,
         gap_days=args.gap_days,
