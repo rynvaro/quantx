@@ -6,9 +6,7 @@
 
 --- 待办事项 ---
 
-5. [低优先级] 把 5m OHLC（open/high/low/close）写入 parquet
-   - 目的：工程清洁，回测不需要单独 load_klines()，减少一次 IO
-   - 影响：只需改 src/features/pipeline.py（join 4列）+ src/backtest/engine.py（改读列方式）
-   - 步骤：改代码 → 重跑 build_features.py（约15分钟）→ 重跑回测验证结果一致 → 不需要重新训练模型
-   - 注意：回测结果数字应与现在完全相同，只是数据读取路径变干净
-   - 当前状态：暂缓，等后续有空再做
+5. [完成] 把 5m OHLC（open/high/low/close）写入 parquet
+   - commit: 00ce811
+   - 结果：parquet 从 136 列增加到 140 列（+price_open/high/low/close）
+   - 回测结果验证一致：6640 笔，胜率 78.4%，最终权益 113802.83U
