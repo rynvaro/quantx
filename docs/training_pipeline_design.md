@@ -21,10 +21,12 @@ scripts/
 └── train_model.py       # CLI 入口
 
 models/                  # 输出目录（.gitignore 已排除）
-├── model_cls.json       # XGBClassifier
-├── model_max.json       # XGBRegressor (y_max)
-├── model_min.json       # XGBRegressor (y_min)
-└── calibrator.pkl       # Platt Scaling 校准器
+├── long/
+│   ├── model_cls.json       # XGBClassifier
+│   ├── model_max.json       # XGBRegressor (y_max)
+│   ├── model_min.json       # XGBRegressor (y_min)
+│   └── calibrator.pkl       # Platt Scaling 校准器
+└── short/               # 未来做空模型时生成
 ```
 
 ---
@@ -115,7 +117,7 @@ load parquet
       → evaluate on val
   → fit Platt calibrator on all OOF predictions
   → retrain final models on FULL data
-  → save models/ + print summary
+  → save models/long/ + print summary
 ```
 
 ---
@@ -125,7 +127,7 @@ load parquet
 ```bash
 python scripts/train_model.py \
     --input data/processed/features_thr005_h30_long.parquet \
-    --output models/ \
+    --output models/long/ \
     --n-folds 6 \
     --gap-days 5
 ```

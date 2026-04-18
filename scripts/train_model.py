@@ -6,7 +6,7 @@ Usage
 -----
     python scripts/train_model.py \\
         --input data/processed/features_thr005_h30_long.parquet \\
-        --output models/ \\
+        --output models/long/ \\
         --n-folds 6 \\
         --gap-days 5
 """
@@ -43,7 +43,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("models"),
+        default=Path("models/long"),
         metavar="DIR",
         help="Directory to save model artifacts.",
     )

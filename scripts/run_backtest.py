@@ -14,7 +14,7 @@ Usage
     # Try different TP/SL settings
     python scripts/run_backtest.py \\
         --input data/processed/features_thr005_h30_long.parquet \\
-        --models models/ \\
+        --models models/long/ \\
         --start 2024-04-01 \\
         --threshold 0.60 \\
         --tp 0.010 --sl 0.007
@@ -44,7 +44,7 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--input",     type=Path, default=Path("data/processed/features_thr005_h30_long.parquet"))
-    parser.add_argument("--models",    type=Path, default=Path("models/"))
+    parser.add_argument("--models",    type=Path, default=Path("models/long"))
     parser.add_argument("--start",     type=str,  default=None,  metavar="YYYY-MM-DD")
     parser.add_argument("--end",       type=str,  default=None,  metavar="YYYY-MM-DD")
     parser.add_argument("--threshold", type=float, default=0.60, metavar="FLOAT",

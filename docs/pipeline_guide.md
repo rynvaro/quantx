@@ -14,7 +14,7 @@ data/raw/
     ↓  Step 2: 特征工程
 data/processed/features_thr005_h30_long.parquet
     ↓  Step 3: 训练模型
-models/ (model_cls.json / model_max.json / model_min.json / calibrator.pkl)
+models/long/ (model_cls.json / model_max.json / model_min.json / calibrator.pkl)
     ↓  Step 4: 回测验证
 回测报告 + equity_curve.csv
 ```
@@ -111,7 +111,7 @@ Step 1 完成（`data/raw/` 目录存在且数据完整）
   - `src/train/model.py` — 3-head XGBoost 训练 + Platt Scaling 校准
   - `src/train/evaluate.py` — 每折指标计算 + 业务 PnL 估算
   - `src/train/pipeline.py` — 端到端编排（加载 → 过滤 → 训练 → 评估 → 全量重训 → 保存）
-- **输出**（保存到 `models/`，已加入 `.gitignore`）：
+- **输出**（保存到 `models/long/`，已加入 `.gitignore`）：
   - `model_cls.json` — XGBClassifier（分类头，判断方向）
   - `model_max.json` — XGBRegressor（预测未来最大涨幅）
   - `model_min.json` — XGBRegressor（预测未来最大跌幅）
@@ -122,7 +122,7 @@ Step 1 完成（`data/raw/` 目录存在且数据完整）
 ```bash
 python scripts/train_model.py \
     --input  data/processed/features_thr005_h30_long.parquet \
-    --output models/
+    --output models/long/
 ```
 
 耗时约 **100–120 秒**（MacBook，M 系列芯片）
@@ -194,14 +194,14 @@ Step 2 完成（parquet 文件存在）
 ### 对应文件
 - **脚本**：`scripts/run_backtest.py`
 - **源码**：`src/backtest/engine.py`
-- **输出**：`models/equity_curve.csv`（权益曲线，可用 Excel/Python 绘图）
+- **输出**：`models/long/equity_curve.csv`（权益曲线，可用 Excel/Python 绘图）
 
 ### 执行指令
 ```bash
 # 标准回测（OOS 区间，推荐 threshold）
 python scripts/run_backtest.py \
     --input     data/processed/features_thr005_h30_long.parquet \
-    --models    models/ \
+    --models    models/long/ \
     --start     2024-04-01 \
     --threshold 0.60
 
@@ -217,7 +217,7 @@ python scripts/run_backtest.py --start 2024-04-01 --end 2024-12-31
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | `--input` | `data/processed/features_thr005_h30_long.parquet` | features 文件路径 |
-| `--models` | `models/` | 模型目录 |
+| `--models` | `models/long/` | 模型目录 |
 | `--start` | 无（全量） | 回测开始日期 |
 | `--end` | 无（全量） | 回测结束日期 |
 | `--threshold` | 0.60 | 信号概率阈值 |
@@ -256,7 +256,7 @@ python scripts/run_backtest.py --start 2024-04-01 --end 2024-12-31
 - Timeout 47% 说明有近一半信号在 30 分钟内行情未走到 ±0.8%，属于正常现象
 
 ### 依赖
-Step 3 完成（`models/` 目录存在且含所有模型文件）
+Step 3 完成（`models/long/` 目录存在且含所有模型文件）
 Step 1 完成（`data/raw/klines/5m/` 存在，用于 TP/SL 模拟）
 
 ---
@@ -278,12 +278,14 @@ quantx/
 │       └── features_thr005_h30_long.parquet  ← Step 2 生成（340MB）
 │
 ├── models/                ← Step 3 生成（已 gitignore）
-│   ├── model_cls.json
-│   ├── model_max.json
-│   ├── model_min.json
-│   ├── calibrator.pkl
-│   ├── feature_cols.txt
-│   └── equity_curve.csv   ← Step 4 生成
+│   ├── long/
+│   │   ├── model_cls.json
+│   │   ├── model_max.json
+│   │   ├── model_min.json
+│   │   ├── calibrator.pkl
+│   │   ├── feature_cols.txt
+│   │   └── equity_curve.csv   ← Step 4 生成
+│   └── short/             ← 未来做空模型时生成
 │
 ├── src/
 │   ├── features/          ← Step 2 源码
@@ -324,7 +326,7 @@ python scripts/build_features.py --threshold 0.005 --horizon 30
 # 3. 训练模型（约 2 分钟）
 python scripts/train_model.py \
     --input  data/processed/features_thr005_h30_long.parquet \
-    --output models/
+    --output models/long/
 
 # 4. 回测验证（约 10–15 秒）
 python scripts/run_backtest.py \
