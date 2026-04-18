@@ -92,11 +92,10 @@ def train_fold(
     spw = neg_count / max(pos_count, 1)
     log.info("    cls  | train=%d (pos=%d neg=%d spw=%.2f)", len(y_cls_tr), pos_count, neg_count, spw)
 
-    model_cls = XGBClassifier(**_CLS_PARAMS, scale_pos_weight=spw)
+    model_cls = XGBClassifier(**_CLS_PARAMS, scale_pos_weight=spw, early_stopping_rounds=_EARLY_STOPPING)
     model_cls.fit(
         X_tr, y_cls_tr,
         eval_set=[(X_va, y_cls_va)],
-        early_stopping_rounds=_EARLY_STOPPING,
         verbose=_VERBOSE_EVAL,
     )
     log.info("    cls  | best_iteration=%d", model_cls.best_iteration)
@@ -106,22 +105,20 @@ def train_fold(
     pos_va = y_cls_va == 1
 
     log.info("    max  | train=%d  val=%d", pos_tr.sum(), pos_va.sum())
-    model_max = XGBRegressor(**_REG_PARAMS)
+    model_max = XGBRegressor(**_REG_PARAMS, early_stopping_rounds=_EARLY_STOPPING)
     model_max.fit(
         X_tr[pos_tr], y_max_tr[pos_tr],
         eval_set=[(X_va[pos_va], y_max_va[pos_va])],
-        early_stopping_rounds=_EARLY_STOPPING,
         verbose=_VERBOSE_EVAL,
     )
     log.info("    max  | best_iteration=%d", model_max.best_iteration)
 
     # ── Head 3: y_min regressor (positive-class only) ─────────────────────────
     log.info("    min  | train=%d  val=%d", pos_tr.sum(), pos_va.sum())
-    model_min = XGBRegressor(**_REG_PARAMS)
+    model_min = XGBRegressor(**_REG_PARAMS, early_stopping_rounds=_EARLY_STOPPING)
     model_min.fit(
         X_tr[pos_tr], y_min_tr[pos_tr],
         eval_set=[(X_va[pos_va], y_min_va[pos_va])],
-        early_stopping_rounds=_EARLY_STOPPING,
         verbose=_VERBOSE_EVAL,
     )
     log.info("    min  | best_iteration=%d", model_min.best_iteration)
