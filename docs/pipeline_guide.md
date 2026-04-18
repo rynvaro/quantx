@@ -12,11 +12,13 @@
     ↓  Step 1: 下载数据
 data/raw/
     ↓  Step 2: 特征工程
-data/processed/features_thr005_h30_long.parquet
+data/processed/features_thr005_h30_{long|short}.parquet
     ↓  Step 3: 训练模型
-models/long/ (model_cls.json / model_max.json / model_min.json / calibrator.pkl)
+models/{long|short}/ (model_cls.json / model_max.json / model_min.json / calibrator.pkl)
     ↓  Step 4: 回测验证
 回测报告 + equity_curve.csv
+    ↓  Step 5: 实时信号
+run_signal.py → LONG/SHORT 概率输出
 ```
 
 ---
@@ -66,7 +68,7 @@ python scripts/download_data.py
   - `src/features/timeframe.py` — 多周期特征合并（1m/5m/15m/1h/4h 对齐到 5m 时间轴）
   - `src/features/labels.py` — 生成标签（y_class / y_max / y_min）
   - `src/features/pipeline.py` — 上述模块的编排入口
-- **输出**：`data/processed/features_thr005_h30_long.parquet`（约 340MB）
+- **输出**：`data/processed/features_thr005_h30_{long|short}.parquet`（约 340MB/方向）
 
 ### 执行指令
 ```bash
@@ -120,9 +122,11 @@ Step 1 完成（`data/raw/` 目录存在且数据完整）
 
 ### 执行指令
 ```bash
-python scripts/train_model.py \
-    --input  data/processed/features_thr005_h30_long.parquet \
-    --output models/long/
+# 多头模型
+python scripts/train_model.py --direction long
+
+# 空头模型
+python scripts/train_model.py --direction short
 ```
 
 耗时约 **100–120 秒**（MacBook，M 系列芯片）
@@ -239,15 +243,21 @@ python scripts/run_backtest.py --start 2024-04-01 --end 2024-12-31
 
 ### 已跑出的回测结果（2024-04-01 → 2026-03-31，OOS）
 ```
-总交易数：6,640 笔（约 9.1 笔/天）
-胜率：78.4%
+【多头】TP=0.8%  SL=0.8%
+总交易数：6,640 笔  胜率：78.4%
 出场分布：TP=2899 (43%) / SL=592 (9%) / Timeout=3149 (47%)
-平均 PnL/笔：+17.1U
-盈亏比（Profit Factor）：3.69
-平均持仓时间：23.1 分钟
-初始权益：312U → 最终权益：113,803U（固定仓位不复利）
-最大回撤：-20.5%
+平均 PnL/笔：+17.1U  Profit Factor：3.69
+初始权益：312U → 最终权益：113,803U  最大回撤：-20.5%
+
+【空头】TP=0.8%  SL=1.0%
+总交易数：6,481 笔  胜率：79.7%
+出场分布：TP=3140 (48%) / SL=300 (5%) / Timeout=3041 (47%)
+平均 PnL/笔：+19.2U  Profit Factor：4.59
+初始权益：312U → 最终权益：124,709U  最大回撤：-7.4%
+注：空头回测期间 ETH 整体下行，结果含市场 regime 红利，不代表模型本身优于多头
 ```
+
+详细参数选定理由见 `docs/backtest_params.md`。
 
 ### 注意事项
 - `--start 2024-04-01` 是关键——必须用 OOS 区间，不能用训练数据段来回测（会高估结果）
@@ -258,6 +268,51 @@ python scripts/run_backtest.py --start 2024-04-01 --end 2024-12-31
 ### 依赖
 Step 3 完成（`models/long/` 目录存在且含所有模型文件）
 Step 1 完成（`data/raw/klines/5m/` 存在，用于 TP/SL 模拟）
+
+---
+
+## Step 5 — 实时信号
+
+### 目的
+每隔 5 分钟（等 bar 收盘）拉取最新 K 线，实时计算特征，同时推理 long 和 short 两个模型，输出校准概率。超过 threshold 时打印 FIRE 信号。
+
+### 对应文件
+- **脚本**：`scripts/run_signal.py`
+- **源码**：`src/live/fetcher.py` / `src/live/indicator.py` / `src/live/signal.py`
+
+### 执行指令
+```bash
+# 循环模式（等 5m bar 收盘后自动推理）
+python scripts/run_signal.py
+
+# 单次运行（调试用）
+python scripts/run_signal.py --once
+
+# 自定义 threshold 或模型目录
+python scripts/run_signal.py --threshold 0.65 \
+    --long-model-dir models/long \
+    --short-model-dir models/short
+```
+
+### 输出示例
+```
+2026-04-18 14:40:00 UTC  price=2358.03
+  LONG  --    prob=0.0248
+  SHORT FIRE  prob=0.6347 ✓
+──────────────────────────────────────────────────────────
+  运行开始 2026-04-18 14:30:00 UTC
+  已检查 2 bars  |  LONG 触发 0 次  |  SHORT 触发 1 次
+  最近 SHORT: 1440 (0.63)
+──────────────────────────────────────────────────────────
+```
+
+### 注意事项
+- 网络需能访问 `fapi.binance.com`（通过代理或直连）
+- 两个模型的 `feature_cols.txt` 必须和实盘特征完全对齐（均为 131 列，不含 OHLC）
+- 信号概率低（如 0.02-0.09）不代表方向相反，只代表当前 bar 无明确信号
+
+### 依赖
+Step 3 完成（`models/long/` 和 `models/short/` 均存在）
 
 ---
 
@@ -275,7 +330,8 @@ quantx/
 │   │   │   └── 4h/     ← Step 1 下载
 │   │   └── funding_rate/  ← Step 1 下载
 │   └── processed/
-│       └── features_thr005_h30_long.parquet  ← Step 2 生成（340MB）
+│       ├── features_thr005_h30_long.parquet   ← Step 2 生成（340MB）
+│       └── features_thr005_h30_short.parquet  ← Step 2 生成（340MB）
 │
 ├── models/                ← Step 3 生成（已 gitignore）
 │   ├── long/
@@ -285,7 +341,7 @@ quantx/
 │   │   ├── calibrator.pkl
 │   │   ├── feature_cols.txt
 │   │   └── equity_curve.csv   ← Step 4 生成
-│   └── short/             ← 未来做空模型时生成
+│   └── short/             ← 同上，已训练
 │
 ├── src/
 │   ├── features/          ← Step 2 源码
@@ -306,7 +362,8 @@ quantx/
 │   ├── download_data.py   ← Step 1 入口
 │   ├── build_features.py  ← Step 2 入口
 │   ├── train_model.py     ← Step 3 入口
-│   └── run_backtest.py    ← Step 4 入口
+│   ├── run_backtest.py    ← Step 4 入口
+│   └── run_signal.py      ← Step 5 入口（实时信号）
 │
 └── docs/
     └── pipeline_guide.md  ← 本文档
@@ -321,17 +378,19 @@ quantx/
 python scripts/download_data.py
 
 # 2. 生成特征（约 10–20 分钟）
-python scripts/build_features.py --threshold 0.005 --horizon 30
+python scripts/build_features.py --direction long  --threshold 0.005 --horizon 30
+python scripts/build_features.py --direction short --threshold 0.005 --horizon 30
 
-# 3. 训练模型（约 2 分钟）
-python scripts/train_model.py \
-    --input  data/processed/features_thr005_h30_long.parquet \
-    --output models/long/
+# 3. 训练模型（约 2 分钟/方向）
+python scripts/train_model.py --direction long
+python scripts/train_model.py --direction short
 
-# 4. 回测验证（约 10–15 秒）
-python scripts/run_backtest.py \
-    --start     2024-04-01 \
-    --threshold 0.60
+# 4. 回测验证（约 10–15 秒/方向）
+python scripts/run_backtest.py --direction long  --start 2024-04-01
+python scripts/run_backtest.py --direction short --start 2024-04-01
+
+# 5. 实时信号（每 5 分钟输出一次 LONG/SHORT 概率）
+python scripts/run_signal.py
 ```
 
 ---
@@ -353,8 +412,9 @@ python scripts/run_backtest.py \
 
 ## 下一步待办
 
-- [ ] 把 5m OHLC（open/high/low/close）写入 parquet，简化回测 IO
-- [ ] 用不同 TP/SL 参数组合跑对比回测，选最优参数
-- [ ] 实时信号脚本（拉 Binance 实时 K 线 → 计算指标 → 输出信号概率）
+- [x] 把 5m OHLC（open/high/low/close）写入 parquet，简化回测 IO
+- [x] 用不同 TP/SL 参数组合跑对比回测，选最优参数（见 `docs/backtest_params.md`）
+- [x] 实时信号脚本（拉 Binance 实时 K 线 → 计算指标 → 输出 LONG/SHORT 概率）
+- [x] 空头模型支持（build_features / train_model / run_backtest / run_signal 全链路）
 - [ ] 纸交易验证（2–4 周，对比信号频率和方向与回测一致性）
 - [ ] 日止损风控（当日亏损 > 3×78U = 234U 时停止交易）
