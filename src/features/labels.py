@@ -23,6 +23,7 @@ def compute_labels(
     df_1m: pd.DataFrame,
     entry_threshold: float = 0.010,
     horizon: int = HORIZON,
+    direction: str = "long",
 ) -> pd.DataFrame:
     """
     Vectorised label computation.
@@ -33,6 +34,9 @@ def compute_labels(
     df_1m : 1m OHLCV DataFrame indexed by UTC open_time.
     entry_threshold : positive rate-of-return threshold (e.g. 0.010 = 1 %).
     horizon : number of 1m bars to look forward (default 15).
+    direction : "long" (default) or "short". For short, y_class fires when
+                price drops by entry_threshold; y_max/y_min are flipped so
+                y_max = max favorable drop and y_min = max adverse rise.
 
     Returns
     -------
@@ -75,7 +79,21 @@ def compute_labels(
 
     y_class = np.where(np.isnan(y_max), np.nan, (y_max >= entry_threshold).astype(float))
 
+    if direction == "long":
+        return pd.DataFrame(
+            {"y_class": y_class, "y_max": y_max, "y_min": y_min},
+            index=df_5m.index,
+        )
+
+    # short: win when price drops by entry_threshold
+    # y_max_s = max favorable drop (positive) = -y_min
+    # y_min_s = max adverse rise  (negative)  = -y_max
+    y_max_s = -y_min
+    y_min_s = -y_max
+    y_class_s = np.where(
+        np.isnan(y_max_s), np.nan, (y_max_s >= entry_threshold).astype(float)
+    )
     return pd.DataFrame(
-        {"y_class": y_class, "y_max": y_max, "y_min": y_min},
+        {"y_class": y_class_s, "y_max": y_max_s, "y_min": y_min_s},
         index=df_5m.index,
     )

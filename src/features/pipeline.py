@@ -60,7 +60,7 @@ def _align_coarse(feat_df: pd.DataFrame, base_index: pd.DatetimeIndex) -> pd.Dat
 # ─── Cross-timeframe features ─────────────────────────────────────────────────
 
 
-def _add_cross_tf_features(df: pd.DataFrame) -> pd.DataFrame:
+def _add_cross_tf_features(df: pd.DataFrame, direction: str = "long") -> pd.DataFrame:
     """
     Compute features that require columns from multiple timeframes.
 
@@ -88,13 +88,22 @@ def _add_cross_tf_features(df: pd.DataFrame) -> pd.DataFrame:
     adx_val = df.get("adx_4h")
 
     if all(x is not None for x in [vcdi, ts, trend_score, rsi_regime, macd_zone, adx_val]):
-        trend_ok = (
-            (trend_score >= 0.0)
-            & (rsi_regime >= 0.45)
-            & (macd_zone > 0.0)
-            & (adx_val > 15.0)
-        ).astype(float)
-        df["cti"] = vcdi * ts.clip(lower=0.0) * trend_ok
+        if direction == "long":
+            trend_ok = (
+                (trend_score >= 0.0)
+                & (rsi_regime >= 0.45)
+                & (macd_zone > 0.0)
+                & (adx_val > 15.0)
+            ).astype(float)
+            df["cti"] = vcdi * ts.clip(lower=0.0) * trend_ok
+        else:
+            trend_ok = (
+                (trend_score <= 0.0)
+                & (rsi_regime <= 0.55)
+                & (macd_zone < 0.0)
+                & (adx_val > 15.0)
+            ).astype(float)
+            df["cti"] = vcdi * (-ts).clip(lower=0.0) * trend_ok
 
     return df
 
@@ -146,6 +155,7 @@ def run(
     start_date: str | None = None,
     end_date: str | None = None,
     include_p2: bool = False,
+    direction: str = "long",
 ) -> pd.DataFrame:
     """
     Full feature engineering pipeline.
@@ -159,6 +169,7 @@ def run(
     start_date      : optional ISO date string to slice data, e.g. "2021-01-01"
     end_date        : optional ISO date string to slice data, e.g. "2025-12-31"
     include_p2      : whether to compute slow P2 features (Hurst, sample entropy)
+    direction       : "long" (default) or "short" — controls directional features and labels
 
     Returns
     -------
@@ -197,7 +208,7 @@ def run(
         log.info("  computing %s features …", tf)
         df_raw = raw[tf]
         # Slice raw data to a safe window before the 5m end date to avoid computing on unnecessary data
-        feat = compute_features(df_raw, tf, include_p2=include_p2)
+        feat = compute_features(df_raw, tf, include_p2=include_p2, direction=direction)
 
         # Detect effective bar frequency for alignment
         if tf == "1m":
@@ -220,11 +231,11 @@ def run(
 
     # ── 6. Cross-timeframe features ───────────────────────────────────────────
     log.info("Computing cross-timeframe features (cpai, CTI) …")
-    merged = _add_cross_tf_features(merged)
+    merged = _add_cross_tf_features(merged, direction=direction)
 
     # ── 7. Labels ─────────────────────────────────────────────────────────────
     log.info("Computing labels (horizon=%d × 1m, threshold=%.3f) …", horizon, entry_threshold)
-    labels = compute_labels(df_5m, raw["1m"], entry_threshold=entry_threshold, horizon=horizon)
+    labels = compute_labels(df_5m, raw["1m"], entry_threshold=entry_threshold, horizon=horizon, direction=direction)
     merged = merged.join(labels)
 
     # ── 8. Filter flags ───────────────────────────────────────────────────────

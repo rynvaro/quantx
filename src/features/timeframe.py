@@ -30,7 +30,12 @@ _MACRO_TF = {"4h"}
 _VWAP_TF = {"1m", "5m"}   # VWAP only for sub-hour frames
 
 
-def compute_features(df: pd.DataFrame, tf: str, include_p2: bool = False) -> pd.DataFrame:
+def compute_features(
+    df: pd.DataFrame,
+    tf: str,
+    include_p2: bool = False,
+    direction: str = "long",
+) -> pd.DataFrame:
     """
     Compute all features for a single-timeframe OHLCV DataFrame.
 
@@ -41,6 +46,7 @@ def compute_features(df: pd.DataFrame, tf: str, include_p2: bool = False) -> pd.
          indexed by UTC open_time, sorted ascending.
     tf : timeframe label, e.g. "1m", "5m", "15m", "1h", "4h"
     include_p2 : whether to compute slow P2 features (Hurst, sample entropy)
+    direction : "long" (default) or "short" — controls directional features
 
     Returns
     -------
@@ -78,7 +84,7 @@ def compute_features(df: pd.DataFrame, tf: str, include_p2: bool = False) -> pd.
     out[f"ema_cross{suffix}"] = ema9 / ema21.replace(0.0, np.nan) - 1.0
 
     if tf in _MICRO_TF:
-        _add_micro_features(out, df, atr14, bb, suffix, include_p2)
+        _add_micro_features(out, df, atr14, bb, suffix, include_p2, direction)
 
     if tf in _VWAP_TF:
         vwap = vwap_daily(hi, lo, cl, vol)
@@ -103,6 +109,7 @@ def _add_micro_features(
     bb: dict,
     suffix: str,
     include_p2: bool,
+    direction: str = "long",
 ) -> None:
     cl, op, hi, lo, vol = (
         df["close"], df["open"], df["high"], df["low"], df["volume"]
@@ -147,23 +154,36 @@ def _add_micro_features(
     trigger = accel5 * vol_accel.clip(lower=0.0)
     out[f"trigger_score{suffix}"] = trigger
 
-    accel_consensus = (
-        (np.sign(accel5) == 1) & (np.sign(accel3) == 1) & (np.sign(accel1) == 1)
-    ).astype(float)
+    if direction == "long":
+        accel_consensus = (
+            (np.sign(accel5) == 1) & (np.sign(accel3) == 1) & (np.sign(accel1) == 1)
+        ).astype(float)
+    else:
+        accel_consensus = (
+            (np.sign(accel5) == -1) & (np.sign(accel3) == -1) & (np.sign(accel1) == -1)
+        ).astype(float)
     out[f"accel_consensus{suffix}"] = accel_consensus
 
     # ── Momentum Confirmation Layer ───────────────────────────────────────────
     tbr = taker_buy / vol.replace(0.0, np.nan)
     out[f"taker_buy_ratio{suffix}"] = tbr
 
-    consec_bull = consecutive_true(cl > cl.shift(1))
-    bsipi = (tbr - 0.5).rolling(10).mean() * np.sqrt(consec_bull + 1.0)
+    if direction == "long":
+        consec = consecutive_true(cl > cl.shift(1))
+        bsipi = (tbr - 0.5).rolling(10).mean() * np.sqrt(consec + 1.0)
+    else:
+        consec = consecutive_true(cl < cl.shift(1))
+        bsipi = (0.5 - tbr).rolling(10).mean() * np.sqrt(consec + 1.0)
     out[f"bsipi{suffix}"] = bsipi
 
     # cbfi_ema: (stance - 0.5) * 2 * vol_ratio, EMA5
-    stance = ((cl - op) / (hi - lo + 1e-8)).clip(0.0, 1.0)
     vol_ratio = vol / vol.rolling(20).mean().replace(0.0, np.nan)
-    cbfi = (stance - 0.5) * 2.0 * vol_ratio
+    if direction == "long":
+        stance = ((cl - op) / (hi - lo + 1e-8)).clip(0.0, 1.0)
+        cbfi = (stance - 0.5) * 2.0 * vol_ratio
+    else:
+        stance = ((cl - op) / (hi - lo + 1e-8)).clip(-1.0, 0.0)
+        cbfi = (stance + 0.5) * (-2.0) * vol_ratio
     out[f"cbfi_ema{suffix}"] = cbfi.ewm(span=5, adjust=False).mean()
 
     # mvdi: (roc5 / std(roc5, 50)) / (atr14 / mean(atr14, 50))

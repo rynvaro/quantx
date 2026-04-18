@@ -88,11 +88,21 @@ def main() -> None:
         action="store_true",
         help="Include slow P2 features (Hurst exponent, sample entropy). Much slower.",
     )
+    parser.add_argument(
+        "--direction",
+        choices=["long", "short"],
+        default="long",
+        help="Trade direction: 'long' (default) or 'short'. Controls directional features and labels.",
+    )
 
     args = parser.parse_args()
 
     data_root = Path(args.data_root)
-    output_path = Path(args.output) if args.output else None
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        thr_str = f"{int(round(args.threshold * 1000)):03d}"
+        output_path = OUTPUT_DIR / f"features_thr{thr_str}_h{args.horizon}_{args.direction}.parquet"
 
     if args.scan_threshold:
         _scan_thresholds(data_root, args.start, args.end, args.horizon)
@@ -105,6 +115,7 @@ def main() -> None:
         start_date=args.start,
         end_date=args.end,
         include_p2=args.include_p2,
+        direction=args.direction,
     )
 
 
