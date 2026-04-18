@@ -1,0 +1,27 @@
+# Data — never commit raw or processed data files
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environments
+.env
+.venv
+venv/
+*.env
+
+# Models (large binary artifacts — commit separately if needed)
+models/
+*.json.gz
+
+# macOS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
