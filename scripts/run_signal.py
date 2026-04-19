@@ -193,6 +193,7 @@ def main() -> None:
     print("Loop mode — waiting for 5m bar close …  (Ctrl+C to stop)\n")
     _is_tty = sys.stdout.isatty()
     signal.signal(signal.SIGTERM, lambda *_: _stop.set())
+    _last_bar_ts: int = 0   # epoch seconds of last processed bar (multiple of 300)
     try:
         while not _stop.is_set():
             deadline = time.time() + _seconds_to_next_bar()
@@ -207,8 +208,14 @@ def main() -> None:
                     _stop.wait(timeout=1)
             else:
                 _stop.wait(timeout=max(0.0, deadline - time.time()))
-            if not _stop.is_set():
-                run_once(long_models, short_models, args.threshold, session)
+            if _stop.is_set():
+                break
+            # deduplicate: skip if this bar was already processed
+            current_bar_ts = int(time.time() // _BAR_SECONDS) * _BAR_SECONDS
+            if current_bar_ts <= _last_bar_ts:
+                continue
+            _last_bar_ts = current_bar_ts
+            run_once(long_models, short_models, args.threshold, session)
     except KeyboardInterrupt:
         print("\n\n[停止]")
     finally:
