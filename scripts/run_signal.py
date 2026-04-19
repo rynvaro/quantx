@@ -140,18 +140,22 @@ def run_once(
     short_prob, short_ymax, short_ymin = _infer(short_models)
 
     # 4. Print signal lines
-    def _fmt(prob: float, tp_val: float, sl_val: float) -> str:
+    # For LONG:  target price = price * (1 + y_val)  — y_max>0 → higher, y_min<0 → lower
+    # For SHORT: y_max/y_min are already flipped in labels.py so y_max>0 means favorable DROP.
+    #            target price = price * (1 - y_val)  — y_max>0 → lower, y_min<0 → higher
+    def _fmt(prob: float, tp_val: float, sl_val: float, direction: str) -> str:
         if prob != prob:  # NaN
             return "NaN (warmup)"
         mark = "\u2713" if prob >= threshold else " "
         label = "FIRE" if prob >= threshold else "--  "
+        sign = 1 if direction == "long" else -1
         if tp_val == tp_val:
-            tp_price = price * (1 + tp_val)
+            tp_price = price * (1 + sign * tp_val)
             tp_str = f"{tp_val*100:+.3f}% → {tp_price:.2f}"
         else:
             tp_str = "NaN"
         if sl_val == sl_val:
-            sl_price = price * (1 + sl_val)
+            sl_price = price * (1 + sign * sl_val)
             sl_str = f"{sl_val*100:+.3f}% → {sl_price:.2f}"
         else:
             sl_str = "NaN"
@@ -159,8 +163,8 @@ def run_once(
 
     print(f"\n{ts_str}  price={price:.2f}")
     # y_max = favorable move (tp), y_min = adverse move (sl) — same for both directions
-    print(f"  LONG  {_fmt(long_prob,  long_ymax,  long_ymin)}")
-    print(f"  SHORT {_fmt(short_prob, short_ymax, short_ymin)}")
+    print(f"  LONG  {_fmt(long_prob,  long_ymax,  long_ymin,  'long')}")
+    print(f"  SHORT {_fmt(short_prob, short_ymax, short_ymin, 'short')}")
 
     # 5. Update session and print summary
     session.record(ts_str, long_prob, short_prob)
