@@ -117,7 +117,12 @@ def run_once(
         return
 
     bar_ts = feature_row.index[-1]
-    ts_str = bar_ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+    import pandas as pd
+    bar_close_ts = bar_ts + pd.Timedelta(minutes=5)
+    ts_str = (
+        f"{bar_ts.strftime('%Y-%m-%d %H:%M')} → "
+        f"{bar_close_ts.strftime('%H:%M')} UTC"
+    )
     price  = float(klines["5m"]["close"].iloc[-1])
 
     # 3. Infer — long and short independently
