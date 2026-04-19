@@ -145,8 +145,16 @@ def run_once(
             return "NaN (warmup)"
         mark = "\u2713" if prob >= threshold else " "
         label = "FIRE" if prob >= threshold else "--  "
-        tp_str = f"{tp_val*100:+.3f}%" if tp_val == tp_val else "  NaN "
-        sl_str = f"{sl_val*100:+.3f}%" if sl_val == sl_val else "  NaN "
+        if tp_val == tp_val:
+            tp_price = price * (1 + tp_val)
+            tp_str = f"{tp_val*100:+.3f}% → {tp_price:.2f}"
+        else:
+            tp_str = "NaN"
+        if sl_val == sl_val:
+            sl_price = price * (1 + sl_val)
+            sl_str = f"{sl_val*100:+.3f}% → {sl_price:.2f}"
+        else:
+            sl_str = "NaN"
         return f"{label}  prob={prob:.4f}  tp={tp_str}  sl={sl_str} {mark}"
 
     print(f"\n{ts_str}  price={price:.2f}")
