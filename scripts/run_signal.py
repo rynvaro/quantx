@@ -118,10 +118,12 @@ def run_once(
 
     bar_ts = feature_row.index[-1]
     import pandas as pd
-    bar_close_ts = bar_ts + pd.Timedelta(minutes=5)
+    _TZ_CST = pd.Timedelta(hours=8)
+    bar_open_cst  = bar_ts       + _TZ_CST
+    bar_close_cst = bar_open_cst + pd.Timedelta(minutes=5)
     ts_str = (
-        f"{bar_ts.strftime('%Y-%m-%d %H:%M')} → "
-        f"{bar_close_ts.strftime('%H:%M')} UTC"
+        f"{bar_open_cst.strftime('%Y-%m-%d %H:%M')} → "
+        f"{bar_close_cst.strftime('%H:%M')} CST"
     )
     price  = float(klines["5m"]["close"].iloc[-1])
 
