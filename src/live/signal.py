@@ -55,7 +55,10 @@ def predict(
 
     Returns
     -------
-    (prob, y_max, y_min) — calibrated probability and predicted max/min move.
+    (prob, y_max, y_min) — calibrated probability and predicted moves.
+    Both long and short models use the same convention (flipped at label time):
+      y_max > 0 : max favorable move for this direction (tp reference)
+      y_min < 0 : max adverse  move for this direction (sl reference)
     All NaN if features are missing.
     """
     missing = [c for c in feature_cols if c not in feature_row.columns]

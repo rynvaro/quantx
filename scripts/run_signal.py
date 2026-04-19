@@ -158,8 +158,9 @@ def run_once(
         return f"{label}  prob={prob:.4f}  tp={tp_str}  sl={sl_str} {mark}"
 
     print(f"\n{ts_str}  price={price:.2f}")
+    # y_max = favorable move (tp), y_min = adverse move (sl) — same for both directions
     print(f"  LONG  {_fmt(long_prob,  long_ymax,  long_ymin)}")
-    print(f"  SHORT {_fmt(short_prob, short_ymin, short_ymax)}")
+    print(f"  SHORT {_fmt(short_prob, short_ymax, short_ymin)}")
 
     # 5. Update session and print summary
     session.record(ts_str, long_prob, short_prob)

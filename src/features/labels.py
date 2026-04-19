@@ -85,9 +85,14 @@ def compute_labels(
             index=df_5m.index,
         )
 
-    # short: win when price drops by entry_threshold
-    # y_max_s = max favorable drop (positive) = -y_min
-    # y_min_s = max adverse rise  (negative)  = -y_max
+    # short: win when price drops by entry_threshold.
+    # Labels are FLIPPED so that both directions share the same interface:
+    #   y_max = max favorable move for this direction (positive)
+    #           → for short: max price DROP  = -y_min_raw
+    #   y_min = max adverse  move for this direction (negative)
+    #           → for short: max price RISE  = -y_max_raw
+    # Consumers should NEVER swap y_max/y_min based on direction —
+    # the flip is already done here at label time.
     y_max_s = -y_min
     y_min_s = -y_max
     y_class_s = np.where(
