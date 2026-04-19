@@ -7,7 +7,6 @@ so they can be passed directly to compute_features().
 
 from __future__ import annotations
 
-import time
 from typing import Optional
 
 import pandas as pd
@@ -79,8 +78,8 @@ def fetch_klines(
     df["count"] = df["count"].astype(int)
 
     # Drop bars whose close_time is in the future (still in progress)
-    now_ms = int(time.time() * 1000)
-    df = df[df["close_time"].astype("int64") // 10**6 < now_ms]
+    now = pd.Timestamp.now(tz="UTC")
+    df = df[df["close_time"] < now]
 
     df = df.set_index("open_time").sort_index()
     keep = _FLOAT_COLS + ["count"]
