@@ -36,22 +36,27 @@ def load_signal_models(model_dir: Path = _DEFAULT_MODEL_DIR):
 def predict(
     feature_row: pd.DataFrame,
     model_cls,
+    model_max,
+    model_min,
     calibrator,
     feature_cols: list[str],
-) -> float:
+) -> tuple[float, float, float]:
     """
-    Produce a calibrated signal probability for a single feature row.
+    Produce a calibrated signal probability and regression targets.
 
     Parameters
     ----------
     feature_row  : single-row DataFrame from compute_live_features()
     model_cls    : loaded XGBClassifier
+    model_max    : loaded XGBRegressor for y_max
+    model_min    : loaded XGBRegressor for y_min
     calibrator   : fitted Platt scaling LogisticRegression
     feature_cols : ordered list of 131 feature names (from feature_cols.txt)
 
     Returns
     -------
-    Calibrated probability in [0, 1].  Returns NaN if features are missing.
+    (prob, y_max, y_min) — calibrated probability and predicted max/min move.
+    All NaN if features are missing.
     """
     missing = [c for c in feature_cols if c not in feature_row.columns]
     if missing:
@@ -59,12 +64,12 @@ def predict(
 
     X = feature_row[feature_cols].values.astype(np.float32)
 
-    # NaN values are acceptable — XGBoost handles them natively via default
-    # split direction.  Warn only if ALL features are NaN (likely a fetch error).
     nan_count = int(np.isnan(X).sum())
     if nan_count == X.size:
-        return float("nan")
+        return float("nan"), float("nan"), float("nan")
 
     raw_prob = model_cls.predict_proba(X)[:, 1]
-    cal_prob  = calibrator.predict_proba(raw_prob.reshape(-1, 1))[:, 1]
-    return float(cal_prob[0])
+    cal_prob = calibrator.predict_proba(raw_prob.reshape(-1, 1))[:, 1]
+    y_max    = float(model_max.predict(X)[0])
+    y_min    = float(model_min.predict(X)[0])
+    return float(cal_prob[0]), y_max, y_min

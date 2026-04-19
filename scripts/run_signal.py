@@ -128,28 +128,30 @@ def run_once(
     price  = float(klines["5m"]["close"].iloc[-1])
 
     # 3. Infer — long and short independently
-    def _infer(models: tuple) -> float:
-        model_cls, _, _, calibrator, feature_cols = models
+    def _infer(models: tuple) -> tuple[float, float, float]:
+        model_cls, model_max, model_min, calibrator, feature_cols = models
         try:
-            return predict(feature_row, model_cls, calibrator, feature_cols)
+            return predict(feature_row, model_cls, model_max, model_min, calibrator, feature_cols)
         except Exception as exc:
             print(f"[ERROR] Inference failed: {exc}")
-            return float("nan")
+            return float("nan"), float("nan"), float("nan")
 
-    long_prob  = _infer(long_models)
-    short_prob = _infer(short_models)
+    long_prob,  long_ymax,  long_ymin  = _infer(long_models)
+    short_prob, short_ymax, short_ymin = _infer(short_models)
 
     # 4. Print signal lines
-    def _fmt(prob: float) -> str:
+    def _fmt(prob: float, tp_val: float, sl_val: float) -> str:
         if prob != prob:  # NaN
-            return "NaN (warmup)          "
+            return "NaN (warmup)"
         mark = "\u2713" if prob >= threshold else " "
         label = "FIRE" if prob >= threshold else "--  "
-        return f"{label}  prob={prob:.4f} {mark}"
+        tp_str = f"{tp_val*100:+.3f}%" if tp_val == tp_val else "  NaN "
+        sl_str = f"{sl_val*100:+.3f}%" if sl_val == sl_val else "  NaN "
+        return f"{label}  prob={prob:.4f}  tp={tp_str}  sl={sl_str} {mark}"
 
     print(f"\n{ts_str}  price={price:.2f}")
-    print(f"  LONG  {_fmt(long_prob)}")
-    print(f"  SHORT {_fmt(short_prob)}")
+    print(f"  LONG  {_fmt(long_prob,  long_ymax,  long_ymin)}")
+    print(f"  SHORT {_fmt(short_prob, short_ymin, short_ymax)}")
 
     # 5. Update session and print summary
     session.record(ts_str, long_prob, short_prob)
