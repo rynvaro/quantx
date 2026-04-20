@@ -55,11 +55,14 @@ class _Session:
         self.short_signals: list[tuple[str, float]] = []
         self.started_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    def record(self, ts: str, long_prob: float, short_prob: float) -> None:
+    def record(
+        self, ts: str, long_prob: float, short_prob: float,
+        long_blocked: bool = False, short_blocked: bool = False,
+    ) -> None:
         self.bars_checked += 1
-        if long_prob == long_prob and long_prob >= self.threshold:   # NaN-safe
+        if not long_blocked and long_prob == long_prob and long_prob >= self.threshold:   # NaN-safe
             self.long_signals.append((ts, long_prob))
-        if short_prob == short_prob and short_prob >= self.threshold:
+        if not short_blocked and short_prob == short_prob and short_prob >= self.threshold:
             self.short_signals.append((ts, short_prob))
 
     def print_summary(self) -> None:
@@ -127,6 +130,12 @@ def run_once(
     )
     price  = float(klines["5m"]["close"].iloc[-1])
 
+    # Trend filter: EMA20 vs EMA60 on 5m closes
+    _close = klines["5m"]["close"]
+    _ema20 = float(_close.ewm(span=20, adjust=False).mean().iloc[-1])
+    _ema60 = float(_close.ewm(span=60, adjust=False).mean().iloc[-1])
+    _trend_up = _ema20 > _ema60   # True = uptrend, False = downtrend
+
     # 3. Infer — long and short independently
     def _infer(models: tuple) -> tuple[float, float, float]:
         model_cls, model_max, model_min, calibrator, feature_cols = models
@@ -143,11 +152,16 @@ def run_once(
     # For LONG:  target price = price * (1 + y_val)  — y_max>0 → higher, y_min<0 → lower
     # For SHORT: y_max/y_min are already flipped in labels.py so y_max>0 means favorable DROP.
     #            target price = price * (1 - y_val)  — y_max>0 → lower, y_min<0 → higher
-    def _fmt(prob: float, tp_val: float, sl_val: float, direction: str) -> str:
+    def _fmt(prob: float, tp_val: float, sl_val: float, direction: str, blocked: bool = False) -> str:
         if prob != prob:  # NaN
             return "NaN (warmup)"
-        mark = "\u2713" if prob >= threshold else " "
-        label = "FIRE" if prob >= threshold else "--  "
+        is_fire = prob >= threshold
+        if is_fire and blocked:
+            label, mark = "BLOK", "\u2717"   # blocked by trend filter
+        elif is_fire:
+            label, mark = "FIRE", "\u2713"
+        else:
+            label, mark = "--  ", " "
         sign = 1 if direction == "long" else -1
         if tp_val == tp_val:
             tp_price = price * (1 + sign * tp_val)
@@ -161,13 +175,17 @@ def run_once(
             sl_str = "NaN"
         return f"{label}  prob={prob:.4f}  tp={tp_str}  sl={sl_str} {mark}"
 
-    print(f"\n{ts_str}  price={price:.2f}")
+    _trend_arrow = "\u2191" if _trend_up else "\u2193"  # ↑ or ↓
+    print(f"\n{ts_str}  price={price:.2f}  trend={_trend_arrow}(EMA20={_ema20:.0f} EMA60={_ema60:.0f})")
     # y_max = favorable move (tp), y_min = adverse move (sl) — same for both directions
-    print(f"  LONG  {_fmt(long_prob,  long_ymax,  long_ymin,  'long')}")
-    print(f"  SHORT {_fmt(short_prob, short_ymax, short_ymin, 'short')}")
+    # BLOK = signal fired but suppressed by trend filter
+    _long_blocked  = not _trend_up   # block LONG when downtrend
+    _short_blocked = _trend_up       # block SHORT when uptrend
+    print(f"  LONG  {_fmt(long_prob,  long_ymax,  long_ymin,  'long',  _long_blocked)}")
+    print(f"  SHORT {_fmt(short_prob, short_ymax, short_ymin, 'short', _short_blocked)}")
 
     # 5. Update session and print summary
-    session.record(ts_str, long_prob, short_prob)
+    session.record(ts_str, long_prob, short_prob, _long_blocked, _short_blocked)
     session.print_summary()
 
 
