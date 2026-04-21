@@ -86,6 +86,12 @@ def compute_features(
     if tf in _MICRO_TF:
         _add_micro_features(out, df, atr14, bb, suffix, include_p2, direction)
 
+    # ── Directional momentum features (5m only) ───────────────────────────────
+    # Net return over multi-bar windows: tells the model which way price moved.
+    # Computed from 5m bars only; windows are calibrated to 30min / 1h / 4h.
+    if tf == "5m":
+        _add_momentum_features(out, cl, suffix)
+
     if tf in _VWAP_TF:
         vwap = vwap_daily(hi, lo, cl, vol)
         out[f"vwap_dev{suffix}"] = cl / vwap.replace(0.0, np.nan) - 1.0
@@ -220,6 +226,31 @@ def _add_micro_features(
     if include_p2:
         out[f"hurst{suffix}"] = hurst_rolling(cl, window=100)
         out[f"sample_entropy{suffix}"] = sample_entropy_rolling(cl, window=50)
+
+
+# ─── Directional momentum (5m only) ─────────────────────────────────────────
+
+
+def _add_momentum_features(out: dict, cl: pd.Series, suffix: str) -> None:
+    """
+    Net price return over fixed windows, computed on 5m bars.
+
+    These features give the model explicit directional context at multiple
+    horizons — something the existing ATR/BB/RSI features cannot provide.
+
+    Windows (in 5m bars):
+      6  bars = 30 min
+      12 bars = 1 h
+      48 bars = 4 h
+    """
+    for n_bars, label in [(6, "30m"), (12, "1h"), (48, "4h")]:
+        lagged = cl.shift(n_bars)
+        out[f"ret_net_{label}{suffix}"] = (cl - lagged) / lagged.replace(0.0, np.nan)
+
+    # Fraction of the last 6 bars that closed up (0 = all down, 1 = all up).
+    # More robust to outlier bars than a raw return.
+    up = (cl > cl.shift(1)).astype(float)
+    out[f"up_bars_6{suffix}"] = up.rolling(6).mean()
 
 
 # ─── Medium (1h) feature builders ────────────────────────────────────────────
