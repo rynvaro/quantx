@@ -5,6 +5,28 @@
 
 ---
 
+## 版本目录规范
+
+每次重大迭代（新特征/新训练）创建新版本目录，**不覆盖旧版本**，便于对比回测和回滚。
+
+```
+data/processed/
+    v1/   ← v1 特征 parquet（131列，原始特征集）
+    v2/   ← v2 特征 parquet（144列，加入动量特征）
+    v3/   ← （未来版本）
+
+models/
+    v1/long/   ← v1 多头模型
+    v1/short/  ← v1 空头模型
+    v2/long/   ← v2 多头模型（当前生产版本）
+    v2/short/  ← v2 空头模型（当前生产版本）
+    v3/        ← （未来版本）
+```
+
+**当前生产版本：v2**（`run_signal.py` 默认加载 `models/v2/long` 和 `models/v2/short`）
+
+---
+
 ## 系统概览
 
 ```
@@ -12,9 +34,9 @@
     ↓  Step 1: 下载数据
 data/raw/
     ↓  Step 2: 特征工程
-data/processed/features_thr005_h30_{long|short}.parquet
+data/processed/v{N}/features_thr005_h30_{long|short}.parquet
     ↓  Step 3: 训练模型
-models/{long|short}/ (model_cls.json / model_max.json / model_min.json / calibrator.pkl)
+models/v{N}/{long|short}/ (model_cls.json / model_max.json / model_min.json / calibrator.pkl)
     ↓  Step 4: 回测验证
 回测报告 + equity_curve.csv
     ↓  Step 5: 实时信号
@@ -68,13 +90,13 @@ python scripts/download_data.py
   - `src/features/timeframe.py` — 多周期特征合并（1m/5m/15m/1h/4h 对齐到 5m 时间轴）
   - `src/features/labels.py` — 生成标签（y_class / y_max / y_min）
   - `src/features/pipeline.py` — 上述模块的编排入口
-- **输出**：`data/processed/features_thr005_h30_{long|short}.parquet`（约 340MB/方向）
+- **输出**：`data/processed/v{N}/features_thr005_h30_{long|short}.parquet`（约 340–380MB/方向）
 
 ### 执行指令
 ```bash
-python scripts/build_features.py \
-    --threshold 0.005 \
-    --horizon   30
+# 生成新版本（指定输出到版本目录）
+python scripts/build_features.py --direction long  --output data/processed/v2/features_thr005_h30_long.parquet
+python scripts/build_features.py --direction short --output data/processed/v2/features_thr005_h30_short.parquet
 ```
 
 参数说明：
@@ -118,15 +140,13 @@ Step 1 完成（`data/raw/` 目录存在且数据完整）
   - `model_max.json` — XGBRegressor（预测未来最大涨幅）
   - `model_min.json` — XGBRegressor（预测未来最大跌幅）
   - `calibrator.pkl` — Platt Scaling 校准器（将原始概率映射为可信概率）
-  - `feature_cols.txt` — 131 个特征列名（推理时必须按此顺序）
+  - `feature_cols.txt` — 特征列名（推理时必须按此顺序，列数随版本变化）
 
 ### 执行指令
 ```bash
-# 多头模型
-python scripts/train_model.py --direction long
-
-# 空头模型
-python scripts/train_model.py --direction short
+# 训练到指定版本目录
+python scripts/train_model.py --direction long  --input data/processed/v2/features_thr005_h30_long.parquet  --output models/v2/long
+python scripts/train_model.py --direction short --input data/processed/v2/features_thr005_h30_short.parquet --output models/v2/short
 ```
 
 耗时约 **100–120 秒**（MacBook，M 系列芯片）
@@ -202,19 +222,19 @@ Step 2 完成（parquet 文件存在）
 
 ### 执行指令
 ```bash
-# 标准回测（OOS 区间，推荐 threshold）
+# 标准回测（OOS 区间：2025-04-01 起为完全未见数据）
 python scripts/run_backtest.py \
-    --input     data/processed/features_thr005_h30_long.parquet \
-    --models    models/long/ \
-    --start     2024-04-01 \
+    --input     data/processed/v2/features_thr005_h30_long.parquet \
+    --models    models/v2/long/ \
+    --start     2025-04-01 \
     --threshold 0.60
 
-# 测试不同 TP/SL
-python scripts/run_backtest.py --start 2024-04-01 --tp 0.010 --sl 0.008
-python scripts/run_backtest.py --start 2024-04-01 --tp 0.012 --sl 0.008
+# 版本间对比（v1 vs v2）
+python scripts/run_backtest.py --direction long --input data/processed/v1/features_thr005_h30_long.parquet --models models/v1/long --start 2025-04-01
+python scripts/run_backtest.py --direction long --input data/processed/v2/features_thr005_h30_long.parquet --models models/v2/long --start 2025-04-01
 
-# 测试特定时间段
-python scripts/run_backtest.py --start 2024-04-01 --end 2024-12-31
+# 测试不同 threshold
+python scripts/run_backtest.py --input data/processed/v2/features_thr005_h30_long.parquet --models models/v2/long --start 2025-04-01 --threshold 0.55
 ```
 
 ### 完整 CLI 参数
@@ -241,21 +261,23 @@ python scripts/run_backtest.py --start 2024-04-01 --end 2024-12-31
 总成本/笔：约 8.19U
 ```
 
-### 已跑出的回测结果（2024-04-01 → 2026-03-31，OOS）
-```
-【多头】TP=0.8%  SL=0.8%
-总交易数：6,640 笔  胜率：78.4%
-出场分布：TP=2899 (43%) / SL=592 (9%) / Timeout=3149 (47%)
-平均 PnL/笔：+17.1U  Profit Factor：3.69
-初始权益：312U → 最终权益：113,803U  最大回撤：-20.5%
+### 回测结果记录（OOS: 2025-04-01 → 2026-03-31，thr=0.60，TP/SL=0.8%）
 
-【空头】TP=0.8%  SL=1.0%
-总交易数：6,481 笔  胜率：79.7%
-出场分布：TP=3140 (48%) / SL=300 (5%) / Timeout=3041 (47%)
-平均 PnL/笔：+19.2U  Profit Factor：4.59
-初始权益：312U → 最终权益：124,709U  最大回撤：-7.4%
-注：空头回测期间 ETH 整体下行，结果含市场 regime 红利，不代表模型本身优于多头
 ```
+版本   方向    交易数  胜率    出场(TP/SL/TO)      均盈/笔  PF     最大回撤
+─────────────────────────────────────────────────────────────────────────
+v1     LONG    3,404   79.7%  1512/279/1613       17.90U   4.04   -38.0%
+v1     SHORT   3,359   78.6%  1585/224/1550       18.60U   4.38   -13.1%
+v2     LONG      842   92.6%   743/46/53          33.08U  10.92   -14.2%
+v2     SHORT     770   93.2%   683/36/51          33.87U  13.22   -15.1%
+─────────────────────────────────────────────────────────────────────────
+v2(0.55) LONG  1,010   91.2%   858/62/90          31.70U   9.45   -14.2%
+v2(0.55) SHORT   971   90.7%   828/58/85          31.77U   9.70   -15.1%
+```
+
+**v2 vs v1**：信号更精准（胜率+13%），均盈翻倍，PF 提升 3x，LONG 最大回撤从 -38% 压缩到 -14%。代价是信号数减少（~4000→~800笔/年）。
+
+**当前生产参数**：v2 模型，threshold=0.60
 
 详细参数选定理由见 `docs/backtest_params.md`。
 
@@ -290,8 +312,8 @@ python scripts/run_signal.py --once
 
 # 自定义 threshold 或模型目录
 python scripts/run_signal.py --threshold 0.65 \
-    --long-model-dir models/long \
-    --short-model-dir models/short
+    --long-model-dir models/v2/long \
+    --short-model-dir models/v2/short
 ```
 
 ### 输出示例
@@ -330,18 +352,26 @@ quantx/
 │   │   │   └── 4h/     ← Step 1 下载
 │   │   └── funding_rate/  ← Step 1 下载
 │   └── processed/
-│       ├── features_thr005_h30_long.parquet   ← Step 2 生成（340MB）
-│       └── features_thr005_h30_short.parquet  ← Step 2 生成（340MB）
+│       ├── v1/                                        ← v1 特征（131列，已归档）
+│       │   ├── features_thr005_h30_long.parquet
+│       │   └── features_thr005_h30_short.parquet
+│       └── v2/                                        ← v2 特征（144列，当前）
+│           ├── features_thr005_h30_long.parquet
+│           └── features_thr005_h30_short.parquet
 │
 ├── models/                ← Step 3 生成（已 gitignore）
-│   ├── long/
-│   │   ├── model_cls.json
-│   │   ├── model_max.json
-│   │   ├── model_min.json
-│   │   ├── calibrator.pkl
-│   │   ├── feature_cols.txt
-│   │   └── equity_curve.csv   ← Step 4 生成
-│   └── short/             ← 同上，已训练
+│   ├── v1/                ← v1 模型（已归档）
+│   │   ├── long/
+│   │   └── short/
+│   └── v2/                ← v2 模型（当前生产版本）
+│       ├── long/
+│       │   ├── model_cls.json
+│       │   ├── model_max.json
+│       │   ├── model_min.json
+│       │   ├── calibrator.pkl
+│       │   ├── feature_cols.txt
+│       │   └── equity_curve.csv   ← Step 4 生成
+│       └── short/         ← 同上
 │
 ├── src/
 │   ├── features/          ← Step 2 源码
@@ -371,25 +401,30 @@ quantx/
 
 ---
 
-## 快速重跑（从零开始）
+## 快速重跑（迭代新版本 vN）
 
 ```bash
-# 1. 下载数据（约 30–60 分钟）
+N=3  # 替换为目标版本号
+mkdir -p data/processed/v${N} models/v${N}/long models/v${N}/short
+
+# 1. 下载最新数据（增量，约 1–5 分钟）
 python scripts/download_data.py
 
-# 2. 生成特征（约 10–20 分钟）
-python scripts/build_features.py --direction long  --threshold 0.005 --horizon 30
-python scripts/build_features.py --direction short --threshold 0.005 --horizon 30
+# 2. 生成特征（约 10–20 分钟/方向）
+python scripts/build_features.py --direction long  --output data/processed/v${N}/features_thr005_h30_long.parquet
+python scripts/build_features.py --direction short --output data/processed/v${N}/features_thr005_h30_short.parquet
 
 # 3. 训练模型（约 2 分钟/方向）
-python scripts/train_model.py --direction long
-python scripts/train_model.py --direction short
+python scripts/train_model.py --direction long  --input data/processed/v${N}/features_thr005_h30_long.parquet  --output models/v${N}/long
+python scripts/train_model.py --direction short --input data/processed/v${N}/features_thr005_h30_short.parquet --output models/v${N}/short
 
-# 4. 回测验证（约 10–15 秒/方向）
-python scripts/run_backtest.py --direction long  --start 2024-04-01
-python scripts/run_backtest.py --direction short --start 2024-04-01
+# 4. 回测对比（与上一版本对比，OOS 起点 2025-04-01）
+python scripts/run_backtest.py --direction long  --input data/processed/v${N}/features_thr005_h30_long.parquet  --models models/v${N}/long  --start 2025-04-01
+python scripts/run_backtest.py --direction short --input data/processed/v${N}/features_thr005_h30_short.parquet --models models/v${N}/short --start 2025-04-01
 
-# 5. 实时信号（每 5 分钟输出一次 LONG/SHORT 概率）
+# 5. 确认后更新 run_signal.py 默认路径，部署到服务器
+# scp -r models/v${N}/ user@server:/path/to/quantx/models/
+# 修改 run_signal.py 中 --long-model-dir / --short-model-dir 默认值
 python scripts/run_signal.py
 ```
 
@@ -416,5 +451,11 @@ python scripts/run_signal.py
 - [x] 用不同 TP/SL 参数组合跑对比回测，选最优参数（见 `docs/backtest_params.md`）
 - [x] 实时信号脚本（拉 Binance 实时 K 线 → 计算指标 → 输出 LONG/SHORT 概率）
 - [x] 空头模型支持（build_features / train_model / run_backtest / run_signal 全链路）
+- [x] CTI 方向 bug 修复（v1.1.0, commit 5f9a576）
+- [x] v2 动量特征（ret_net_30m/1h/4h_5m, up_bars_6_5m）加入 timeframe.py
+- [x] 去除 EMA20/60 趋势过滤器（run_signal.py）
+- [x] 版本化目录结构（data/processed/vN, models/vN）
+- [x] v2 模型训练完成，回测 OOS 胜率 92-93%，PF 10-13，回撤<15%
 - [ ] 纸交易验证（2–4 周，对比信号频率和方向与回测一致性）
+- [ ] 加入买卖压力特征（buy_ratio_30m/1h，taker_buy_volume 驱动）→ v3
 - [ ] 日止损风控（当日亏损 > 3×78U = 234U 时停止交易）
