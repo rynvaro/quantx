@@ -110,11 +110,13 @@ def run_once(
         print(f"[ERROR] Fetch failed: {exc}")
         return
 
-    # 2. Compute features (shared for both directions)
-    feature_row = compute_live_features(klines, funding_rate)
-    if feature_row.empty:
+    # 2. Compute features — computed separately per direction because CTI differs
+    long_feature_row  = compute_live_features(klines, funding_rate, direction="long")
+    short_feature_row = compute_live_features(klines, funding_rate, direction="short")
+    if long_feature_row.empty or short_feature_row.empty:
         print("[WARN] Feature row is empty — skipping.")
         return
+    feature_row = long_feature_row  # used for bar timestamp / price extraction below
 
     bar_ts = feature_row.index[-1]
     import pandas as pd
@@ -127,17 +129,17 @@ def run_once(
     )
     price  = float(klines["5m"]["close"].iloc[-1])
 
-    # 3. Infer — long and short independently
-    def _infer(models: tuple) -> tuple[float, float, float]:
+    # 3. Infer — long and short use their respective feature rows
+    def _infer(models: tuple, frow) -> tuple[float, float, float]:
         model_cls, model_max, model_min, calibrator, feature_cols = models
         try:
-            return predict(feature_row, model_cls, model_max, model_min, calibrator, feature_cols)
+            return predict(frow, model_cls, model_max, model_min, calibrator, feature_cols)
         except Exception as exc:
             print(f"[ERROR] Inference failed: {exc}")
             return float("nan"), float("nan"), float("nan")
 
-    long_prob,  long_ymax,  long_ymin  = _infer(long_models)
-    short_prob, short_ymax, short_ymin = _infer(short_models)
+    long_prob,  long_ymax,  long_ymin  = _infer(long_models,  long_feature_row)
+    short_prob, short_ymax, short_ymin = _infer(short_models, short_feature_row)
 
     # 4. Print signal lines
     # For LONG:  target price = price * (1 + y_val)  — y_max>0 → higher, y_min<0 → lower

@@ -26,6 +26,7 @@ _INTERVALS = ["1m", "5m", "15m", "1h", "4h"]
 def compute_live_features(
     klines: dict[str, pd.DataFrame],
     funding_rate: float,
+    direction: str = "long",
 ) -> pd.DataFrame:
     """
     Compute the feature row for the latest completed 5m bar.
@@ -34,6 +35,9 @@ def compute_live_features(
     ----------
     klines       : dict mapping interval → DataFrame (from fetcher.fetch_klines)
     funding_rate : most recent settled funding rate (float)
+    direction    : "long" or "short" — must match the model being evaluated.
+                   Controls the CTI cross-timeframe feature computation so that
+                   live features match the offline training parquet exactly.
 
     Returns
     -------
@@ -79,6 +83,7 @@ def compute_live_features(
     merged = _add_time_features(merged)
 
     # ── Cross-timeframe features (cpai, CTI) ──────────────────────────────────
-    merged = _add_cross_tf_features(merged)
+    # direction must be passed so CTI uses the same trend_ok gate as training
+    merged = _add_cross_tf_features(merged, direction=direction)
 
     return merged
