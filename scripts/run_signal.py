@@ -16,8 +16,8 @@ python scripts/run_signal.py
 Options
 -------
 --threshold FLOAT        Signal threshold (default 0.60)
---long-model-dir PATH    Path to long model directory (default models/long/)
---short-model-dir PATH   Path to short model directory (default models/short/)
+--long-model-dir PATH    Path to long model directory (default models/v2/long/)
+--short-model-dir PATH   Path to short model directory (default models/v2/short/)
 --once                   Run once and exit instead of looping
 """
 
@@ -187,8 +187,8 @@ def _seconds_to_next_bar() -> float:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Live ETH/USDT signal monitor")
     parser.add_argument("--threshold",       type=float, default=0.60)
-    parser.add_argument("--long-model-dir",  type=Path,  default=Path("models/long"))
-    parser.add_argument("--short-model-dir", type=Path,  default=Path("models/short"))
+    parser.add_argument("--long-model-dir",  type=Path,  default=Path("models/v2/long"))
+    parser.add_argument("--short-model-dir", type=Path,  default=Path("models/v2/short"))
     parser.add_argument(
         "--once", action="store_true",
         help="Run once immediately and exit",
