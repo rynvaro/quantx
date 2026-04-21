@@ -17,7 +17,7 @@ venv/
 *.env
 
 # Models (large binary artifacts — commit separately if needed)
-models/
+models*
 *.json.gz
 
 # macOS
