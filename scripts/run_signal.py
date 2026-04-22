@@ -202,14 +202,15 @@ def main() -> None:
         args.log_file.parent.mkdir(parents=True, exist_ok=True)
         _log_fh = args.log_file.open("a", buffering=1, encoding="utf-8")
         import io
+        _orig_stdout = sys.stdout  # save before replacing
 
         class _Tee(io.TextIOBase):
             def write(self, s):
-                sys.stdout.write(s)  # original stdout
+                _orig_stdout.write(s)
                 _log_fh.write(s)
                 return len(s)
             def flush(self):
-                sys.stdout.flush()
+                _orig_stdout.flush()
                 _log_fh.flush()
 
         sys.stdout = _Tee()
