@@ -189,11 +189,30 @@ def main() -> None:
     parser.add_argument("--threshold",       type=float, default=0.60)
     parser.add_argument("--long-model-dir",  type=Path,  default=Path("models/v2/long"))
     parser.add_argument("--short-model-dir", type=Path,  default=Path("models/v2/short"))
+    parser.add_argument("--log-file",        type=Path,  default=None,
+                        help="Append output to this file in addition to stdout")
     parser.add_argument(
         "--once", action="store_true",
         help="Run once immediately and exit",
     )
     args = parser.parse_args()
+
+    # Set up log-file tee if requested
+    if args.log_file:
+        args.log_file.parent.mkdir(parents=True, exist_ok=True)
+        _log_fh = args.log_file.open("a", buffering=1, encoding="utf-8")
+        import io
+
+        class _Tee(io.TextIOBase):
+            def write(self, s):
+                sys.stdout.write(s)  # original stdout
+                _log_fh.write(s)
+                return len(s)
+            def flush(self):
+                sys.stdout.flush()
+                _log_fh.flush()
+
+        sys.stdout = _Tee()
 
     print("Loading models …")
     try:

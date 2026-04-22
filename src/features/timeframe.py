@@ -90,7 +90,8 @@ def compute_features(
     # Net return over multi-bar windows: tells the model which way price moved.
     # Computed from 5m bars only; windows are calibrated to 30min / 1h / 4h.
     if tf == "5m":
-        _add_momentum_features(out, cl, suffix)
+        taker_buy = df["taker_buy_volume"]
+        _add_momentum_features(out, cl, vol, taker_buy, suffix)
 
     if tf in _VWAP_TF:
         vwap = vwap_daily(hi, lo, cl, vol)
@@ -231,21 +232,33 @@ def _add_micro_features(
 # ─── Directional momentum (5m only) ─────────────────────────────────────────
 
 
-def _add_momentum_features(out: dict, cl: pd.Series, suffix: str) -> None:
+def _add_momentum_features(
+    out: dict,
+    cl: pd.Series,
+    vol: pd.Series,
+    taker_buy: pd.Series,
+    suffix: str,
+) -> None:
     """
-    Net price return over fixed windows, computed on 5m bars.
+    Directional momentum features computed on 5m bars.
 
-    These features give the model explicit directional context at multiple
-    horizons — something the existing ATR/BB/RSI features cannot provide.
-
-    Windows (in 5m bars):
+    Price return windows (in 5m bars):
       6  bars = 30 min
       12 bars = 1 h
       48 bars = 4 h
+
+    Taker-buy ratio windows: rolling sum of taker_buy_volume / volume over
+    the same horizons.  Unlike the per-bar taker_buy_ratio, these capture
+    sustained buy pressure across multiple bars and tend to lead price moves.
     """
     for n_bars, label in [(6, "30m"), (12, "1h"), (48, "4h")]:
         lagged = cl.shift(n_bars)
         out[f"ret_net_{label}{suffix}"] = (cl - lagged) / lagged.replace(0.0, np.nan)
+
+        # Rolling taker-buy ratio over the same window
+        tbv_sum = taker_buy.rolling(n_bars).sum()
+        vol_sum = vol.rolling(n_bars).sum().replace(0.0, np.nan)
+        out[f"buy_ratio_{label}{suffix}"] = tbv_sum / vol_sum
 
     # Fraction of the last 6 bars that closed up (0 = all down, 1 = all up).
     # More robust to outlier bars than a raw return.
