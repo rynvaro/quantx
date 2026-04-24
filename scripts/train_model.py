@@ -84,8 +84,8 @@ def main() -> None:
     args = _parse_args()
 
     # Auto-infer input/output from direction if not explicitly provided
-    _DATA_DIR = Path("data/processed")
-    _MODELS_DIR = Path("models")
+    _DATA_DIR = Path("data/processed/v1")
+    _MODELS_DIR = Path("models/v1")
     input_path = args.input or _DATA_DIR / f"features_thr005_h30_{args.direction}.parquet"
     output_dir = args.output or _MODELS_DIR / args.direction
 

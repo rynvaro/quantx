@@ -2,8 +2,8 @@ PYTHON   := python3
 VENV     := .venv
 SCRIPT   := scripts/run_signal.py
 LOG_DIR  := logs
-LOG_FILE := $(LOG_DIR)/signal.log
-PID_FILE := $(LOG_DIR)/signal.pid
+LOG_FILE := $(LOG_DIR)/signal_v1.log
+PID_FILE := $(LOG_DIR)/signal_v1.pid
 
 .PHONY: init start start-bg stop status logs restart _logs_dir
 

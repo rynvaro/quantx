@@ -102,7 +102,7 @@ def main() -> None:
         output_path = Path(args.output)
     else:
         thr_str = f"{int(round(args.threshold * 1000)):03d}"
-        output_path = OUTPUT_DIR / f"features_thr{thr_str}_h{args.horizon}_{args.direction}.parquet"
+        output_path = OUTPUT_DIR / "v1" / f"features_thr{thr_str}_h{args.horizon}_{args.direction}.parquet"
 
     if args.scan_threshold:
         _scan_thresholds(data_root, args.start, args.end, args.horizon)
