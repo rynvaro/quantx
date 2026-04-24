@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.live.fetcher import fetch_klines, fetch_funding_rate
 from src.live.indicator import compute_live_features
 from src.live.signal import load_signal_models, predict
+from src.live.pattern_matcher import match_patterns
 
 _INTERVALS = ["1m", "5m", "15m", "1h", "4h"]
 _BAR_SECONDS = 5 * 60   # 5-minute bar
@@ -141,7 +142,21 @@ def run_once(
     long_prob,  long_ymax,  long_ymin  = _infer(long_models,  long_feature_row)
     short_prob, short_ymax, short_ymin = _infer(short_models, short_feature_row)
 
-    # 4. Print signal lines
+    # 4. Pattern matching (不影响信号触发，仅用于标记)
+    long_pattern_code = "NONE"
+    short_pattern_code = "NONE"
+
+    if long_prob >= threshold:
+        patterns = match_patterns(klines, direction="long")
+        if patterns:
+            long_pattern_code = patterns[0].code  # 取置信度最高的
+
+    if short_prob >= threshold:
+        patterns = match_patterns(klines, direction="short")
+        if patterns:
+            short_pattern_code = patterns[0].code
+
+    # 5. Print signal lines
     # For LONG:  target price = price * (1 + y_val)  — y_max>0 → higher, y_min<0 → lower
     # For SHORT: y_max/y_min are already flipped in labels.py so y_max>0 means favorable DROP.
     #            target price = price * (1 - y_val)  — y_max>0 → lower, y_min<0 → higher
@@ -166,9 +181,13 @@ def run_once(
     print(f"\n{ts_str}  price={price:.2f}")
     # y_max = favorable move (tp), y_min = adverse move (sl) — same for both directions
     print(f"  LONG  {_fmt(long_prob,  long_ymax,  long_ymin,  'long')}")
+    if long_prob >= threshold:
+        print(f"        Pattern: {long_pattern_code}")
     print(f"  SHORT {_fmt(short_prob, short_ymax, short_ymin, 'short')}")
+    if short_prob >= threshold:
+        print(f"        Pattern: {short_pattern_code}")
 
-    # 5. Update session and print summary
+    # 6. Update session and print summary
     session.record(ts_str, long_prob, short_prob)
     session.print_summary()
 
