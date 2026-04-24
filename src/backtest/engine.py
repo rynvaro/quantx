@@ -187,21 +187,27 @@ class BacktestEngine:
             if in_position and sig_time <= position_end:
                 continue
 
-            # Entry: approximate as current bar's close + slippage
+            # Entry: use NEXT bar's open (no look-ahead bias)
+            # Find the next bar after signal
+            future_bars = df.index[df.index > sig_time]
+            if len(future_bars) == 0:
+                continue
+            entry_bar = future_bars[0]
+
             if has_ohlc:
-                entry_price_raw = df.at[sig_time, "price_close"]
+                entry_price_raw = df.at[entry_bar, "price_open"]
             else:
                 entry_price_raw = np.nan
             if np.isnan(entry_price_raw):
                 continue
 
             if self.cfg.direction == "long":
-                # Buy: fill at close + slippage; profit from price rising
+                # Buy: fill at next open + slippage; profit from price rising
                 entry_price = entry_price_raw * (1 + self.cfg.slippage)
                 tp_price = entry_price * (1 + self.cfg.take_profit)
                 sl_price = entry_price * (1 - self.cfg.stop_loss)
             else:
-                # Sell short: fill at close - slippage; profit from price falling
+                # Sell short: fill at next open - slippage; profit from price falling
                 entry_price = entry_price_raw * (1 - self.cfg.slippage)
                 tp_price = entry_price * (1 - self.cfg.take_profit)
                 sl_price = entry_price * (1 + self.cfg.stop_loss)
@@ -210,9 +216,9 @@ class BacktestEngine:
             notional = margin * self.cfg.leverage
             fee_in   = notional * self.cfg.fee_rate
 
-            # ── Simulate exit over next horizon_bars ─────────────────────────
-            # Find future bars
-            future_idx = df.index[df.index > sig_time][:self.cfg.horizon_bars]
+            # ── Simulate exit over next horizon_bars (starting from entry_bar) ───
+            # Find future bars after entry
+            future_idx = df.index[df.index > entry_bar][:self.cfg.horizon_bars]
             if len(future_idx) == 0:
                 continue
 
@@ -283,7 +289,7 @@ class BacktestEngine:
             equity += pnl
 
             trade = Trade(
-                entry_time=sig_time,
+                entry_time=entry_bar,  # actual entry time (next bar after signal)
                 exit_time=exit_time,
                 entry_price=entry_price,
                 exit_price=exit_price,

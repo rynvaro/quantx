@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 
 # Number of 1m bars to look forward
-HORIZON = 15
+# HORIZON = 30 → 30 minutes, matching backtest horizon_bars=6 (6 × 5m = 30min)
+HORIZON = 30
 
 
 def compute_labels(

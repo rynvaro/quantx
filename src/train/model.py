@@ -79,8 +79,8 @@ def train_fold(
     """
     Train all three heads for a single fold.
 
-    Regression heads (max, min) are trained only on positive-class samples
-    (y_class == 1), which gives a cleaner signal for true-breakout magnitude.
+    Regression heads (max, min) are now trained on ALL samples (not just positive-class).
+    This prevents out-of-distribution predictions when the classifier fires on negative samples.
 
     Returns
     -------
@@ -100,25 +100,22 @@ def train_fold(
     )
     log.info("    cls  | best_iteration=%d", model_cls.best_iteration)
 
-    # ── Head 2: y_max regressor (positive-class only) ─────────────────────────
-    pos_tr = y_cls_tr == 1
-    pos_va = y_cls_va == 1
-
-    log.info("    max  | train=%d  val=%d", pos_tr.sum(), pos_va.sum())
+    # ── Head 2: y_max regressor (ALL samples) ─────────────────────────────────
+    log.info("    max  | train=%d  val=%d", len(X_tr), len(X_va))
     model_max = XGBRegressor(**_REG_PARAMS, early_stopping_rounds=_EARLY_STOPPING)
     model_max.fit(
-        X_tr[pos_tr], y_max_tr[pos_tr],
-        eval_set=[(X_va[pos_va], y_max_va[pos_va])],
+        X_tr, y_max_tr,
+        eval_set=[(X_va, y_max_va)],
         verbose=_VERBOSE_EVAL,
     )
     log.info("    max  | best_iteration=%d", model_max.best_iteration)
 
-    # ── Head 3: y_min regressor (positive-class only) ─────────────────────────
-    log.info("    min  | train=%d  val=%d", pos_tr.sum(), pos_va.sum())
+    # ── Head 3: y_min regressor (ALL samples) ─────────────────────────────────
+    log.info("    min  | train=%d  val=%d", len(X_tr), len(X_va))
     model_min = XGBRegressor(**_REG_PARAMS, early_stopping_rounds=_EARLY_STOPPING)
     model_min.fit(
-        X_tr[pos_tr], y_min_tr[pos_tr],
-        eval_set=[(X_va[pos_va], y_min_va[pos_va])],
+        X_tr, y_min_tr,
+        eval_set=[(X_va, y_min_va)],
         verbose=_VERBOSE_EVAL,
     )
     log.info("    min  | best_iteration=%d", model_min.best_iteration)

@@ -123,18 +123,17 @@ def run(
         raw_scores = model_cls.predict_proba(X_va)[:, 1]
         oof_scores[va_idx] = raw_scores
 
-        # Predictions for regression heads (only on val positive-class)
-        va_pos_mask = y_cls_va == 1
-        y_max_pred = model_max.predict(X_va[va_pos_mask])
-        y_min_pred = model_min.predict(X_va[va_pos_mask])
+        # Predictions for regression heads (now on ALL validation samples)
+        y_max_pred = model_max.predict(X_va)
+        y_min_pred = model_min.predict(X_va)
 
         # Evaluate (use raw scores — calibrator not fitted yet, so use as-is for ranking)
         metrics = evaluate_fold(
             y_cls_true=y_cls_va,
             y_cls_score=raw_scores,
-            y_max_true=y_max_va[va_pos_mask],
+            y_max_true=y_max_va,
             y_max_pred=y_max_pred,
-            y_min_true=y_min_va[va_pos_mask],
+            y_min_true=y_min_va,
             y_min_pred=y_min_pred,
             fold=fold_idx + 1,
         )
