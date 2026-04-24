@@ -70,8 +70,8 @@ def main() -> None:
     args = _parse_args()
 
     # Auto-infer input/models from direction if not explicitly provided
-    input_path  = args.input  or Path(f"data/processed/features_thr005_h30_{args.direction}.parquet")
-    models_path = args.models or Path(f"models/{args.direction}")
+    input_path  = args.input  or Path(f"data/processed/v1/features_thr005_h30_{args.direction}.parquet")
+    models_path = args.models or Path(f"models/v1/{args.direction}")
 
     if not input_path.exists():
         print(f"ERROR: input file not found: {input_path}", file=sys.stderr)

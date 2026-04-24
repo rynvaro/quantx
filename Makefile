@@ -18,7 +18,6 @@ init: | _logs_dir
 	fi
 	$(VENV)/bin/pip install --upgrade pip -q
 	$(VENV)/bin/pip install -r requirements.txt
-	$(VENV)/bin/pip install xgboost==3.2.0 --no-deps
 	@echo ""
 	@echo "Done. Activate with: source $(VENV)/bin/activate"
 
