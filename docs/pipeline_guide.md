@@ -2,6 +2,7 @@
 ## ETH/USDT 永续合约 Calm-Trigger/Spring 机器学习交易系统
 
 > 本文档记录从零开始到可运行回测的全流程，包含每一步的目的、指令、注意事项和依赖关系。
+> 最后更新：2026-04-25（v1 分支）
 
 ---
 
@@ -12,13 +13,13 @@
     ↓  Step 1: 下载数据
 data/raw/
     ↓  Step 2: 特征工程
-data/processed/features_thr005_h30_{long|short}.parquet
+data/processed/v1/features_thr005_h30_{long|short}.parquet
     ↓  Step 3: 训练模型
-models/{long|short}/ (model_cls.json / model_max.json / model_min.json / calibrator.pkl)
+models/v1/{long|short}/ (model_cls.json / model_max.json / model_min.json / calibrator.pkl)
     ↓  Step 4: 回测验证
 回测报告 + equity_curve.csv
     ↓  Step 5: 实时信号
-run_signal.py → LONG/SHORT 概率输出
+run_signal.py → LONG/SHORT 概率 + 形态编码输出
 ```
 
 ---
@@ -68,7 +69,7 @@ python scripts/download_data.py
   - `src/features/timeframe.py` — 多周期特征合并（1m/5m/15m/1h/4h 对齐到 5m 时间轴）
   - `src/features/labels.py` — 生成标签（y_class / y_max / y_min）
   - `src/features/pipeline.py` — 上述模块的编排入口
-- **输出**：`data/processed/features_thr005_h30_{long|short}.parquet`（约 340MB/方向）
+- **输出**：`data/processed/v1/features_thr005_h30_{long|short}.parquet`（约 334MB/方向）
 
 ### 执行指令
 ```bash
@@ -76,6 +77,8 @@ python scripts/build_features.py \
     --threshold 0.005 \
     --horizon   30
 ```
+
+> 默认输出到 `data/processed/v1/`，无需指定路径。
 
 参数说明：
 - `--threshold 0.005`：标签阈值，即未来 30 分钟内最高价相对入场价涨幅 ≥ 0.5% 为正样本
@@ -113,7 +116,7 @@ Step 1 完成（`data/raw/` 目录存在且数据完整）
   - `src/train/model.py` — 3-head XGBoost 训练 + Platt Scaling 校准
   - `src/train/evaluate.py` — 每折指标计算 + 业务 PnL 估算
   - `src/train/pipeline.py` — 端到端编排（加载 → 过滤 → 训练 → 评估 → 全量重训 → 保存）
-- **输出**（保存到 `models/long/`，已加入 `.gitignore`）：
+- **输出**（保存到 `models/v1/long/`，已加入 `.gitignore`）：
   - `model_cls.json` — XGBClassifier（分类头，判断方向）
   - `model_max.json` — XGBRegressor（预测未来最大涨幅）
   - `model_min.json` — XGBRegressor（预测未来最大跌幅）
@@ -122,10 +125,8 @@ Step 1 完成（`data/raw/` 目录存在且数据完整）
 
 ### 执行指令
 ```bash
-# 多头模型
+# 默认自动使用 data/processed/v1/ 和 models/v1/
 python scripts/train_model.py --direction long
-
-# 空头模型
 python scripts/train_model.py --direction short
 ```
 
@@ -142,12 +143,12 @@ python scripts/train_model.py --direction short
 
      ┌─────────────────────────────────┐
      │  XGBRegressor (model_max)        │  → 预测未来最大涨幅（%）
-     │  训练集：仅正样本（y_class=1）  │
+     │  训练集：全部样本（已修复）      │
      └─────────────────────────────────┘
 
      ┌─────────────────────────────────┐
      │  XGBRegressor (model_min)        │  → 预测未来最大跌幅（%）
-     │  训练集：仅正样本（y_class=1）  │
+     │  训练集：全部样本（已修复）      │
      └─────────────────────────────────┘
 ```
 
@@ -198,30 +199,26 @@ Step 2 完成（parquet 文件存在）
 ### 对应文件
 - **脚本**：`scripts/run_backtest.py`
 - **源码**：`src/backtest/engine.py`
-- **输出**：`models/long/equity_curve.csv`（权益曲线，可用 Excel/Python 绘图）
+- **输出**：`models/v1/long/equity_curve.csv`（权益曲线，可用 Excel/Python 绘图）
 
 ### 执行指令
 ```bash
-# 标准回测（OOS 区间，推荐 threshold）
-python scripts/run_backtest.py \
-    --input     data/processed/features_thr005_h30_long.parquet \
-    --models    models/long/ \
-    --start     2024-04-01 \
-    --threshold 0.60
+# 标准回测（默认使用 data/processed/v1/ 和 models/v1/）
+python scripts/run_backtest.py --direction long  --start 2025-01-01
+python scripts/run_backtest.py --direction short --start 2025-01-01
 
 # 测试不同 TP/SL
-python scripts/run_backtest.py --start 2024-04-01 --tp 0.010 --sl 0.008
-python scripts/run_backtest.py --start 2024-04-01 --tp 0.012 --sl 0.008
+python scripts/run_backtest.py --direction long --start 2025-01-01 --tp 0.010 --sl 0.008
 
 # 测试特定时间段
-python scripts/run_backtest.py --start 2024-04-01 --end 2024-12-31
+python scripts/run_backtest.py --direction long --start 2025-01-01 --end 2025-12-31
 ```
 
 ### 完整 CLI 参数
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `--input` | `data/processed/features_thr005_h30_long.parquet` | features 文件路径 |
-| `--models` | `models/long/` | 模型目录 |
+| `--input` | `data/processed/v1/features_thr005_h30_long.parquet` | features 文件路径 |
+| `--models` | `models/v1/long/` | 模型目录 |
 | `--start` | 无（全量） | 回测开始日期 |
 | `--end` | 无（全量） | 回测结束日期 |
 | `--threshold` | 0.60 | 信号概率阈值 |
@@ -241,20 +238,20 @@ python scripts/run_backtest.py --start 2024-04-01 --end 2024-12-31
 总成本/笔：约 8.19U
 ```
 
-### 已跑出的回测结果（2024-04-01 → 2026-03-31，OOS）
+### 已跑出的回测结果（2025 全年）
 ```
 【多头】TP=0.8%  SL=0.8%
-总交易数：6,640 笔  胜率：78.4%
-出场分布：TP=2899 (43%) / SL=592 (9%) / Timeout=3149 (47%)
-平均 PnL/笔：+17.1U  Profit Factor：3.69
-初始权益：312U → 最终权益：113,803U  最大回撤：-20.5%
+总交易数：3,419 笔  胜率：79.1%
+出场分布：TP=1662 (49%) / SL=334 (10%) / Timeout=1423 (42%)
+平均 PnL/笔：+18.1U  Profit Factor：3.72
+初始权益：312U → 最终权益：62,129U  最大回撤：-6.3%
 
 【空头】TP=0.8%  SL=1.0%
-总交易数：6,481 笔  胜率：79.7%
-出场分布：TP=3140 (48%) / SL=300 (5%) / Timeout=3041 (47%)
-平均 PnL/笔：+19.2U  Profit Factor：4.59
-初始权益：312U → 最终权益：124,709U  最大回撤：-7.4%
-注：空头回测期间 ETH 整体下行，结果含市场 regime 红利，不代表模型本身优于多头
+总交易数：3,362 笔  胜率：78.5%
+出场分布：TP=1742 (52%) / SL=273 (8%) / Timeout=1347 (40%)
+平均 PnL/笔：+18.9U  Profit Factor：4.06
+初始权益：312U → 最终权益：63,950U  最大回撤：-11.9%
+注：空头在 2021 年牛市初期会爆仓，建议观察市场状态后使用
 ```
 
 详细参数选定理由见 `docs/backtest_params.md`。
@@ -274,45 +271,54 @@ Step 1 完成（`data/raw/klines/5m/` 存在，用于 TP/SL 模拟）
 ## Step 5 — 实时信号
 
 ### 目的
-每隔 5 分钟（等 bar 收盘）拉取最新 K 线，实时计算特征，同时推理 long 和 short 两个模型，输出校准概率。超过 threshold 时打印 FIRE 信号。
+每隔 5 分钟（等 bar 收盘）拉取最新 K 线，实时计算特征，同时推理 long 和 short 两个模型，输出校准概率。超过 threshold 时打印信号并标记形态编码（L1/L2/S1-S4/NONE）。
 
 ### 对应文件
 - **脚本**：`scripts/run_signal.py`
-- **源码**：`src/live/fetcher.py` / `src/live/indicator.py` / `src/live/signal.py`
+- **源码**：`src/live/fetcher.py` / `src/live/indicator.py` / `src/live/signal.py` / `src/live/pattern_matcher.py`
 
 ### 执行指令
 ```bash
-# 循环模式（等 5m bar 收盘后自动推理）
-python scripts/run_signal.py
+# 后台守护（推荐生产使用）
+make start-bg
+make logs   # 查看日志
+make stop   # 停止
 
-# 单次运行（调试用）
+# 前台运行（调试用）
+make start
+
+# 单次运行（快速调试）
 python scripts/run_signal.py --once
 
 # 自定义 threshold 或模型目录
 python scripts/run_signal.py --threshold 0.65 \
-    --long-model-dir models/long \
-    --short-model-dir models/short
+    --long-model-dir models/v1/long \
+    --short-model-dir models/v1/short
 ```
 
 ### 输出示例
 ```
-2026-04-18 14:40:00 UTC  price=2358.03
-  LONG  --    prob=0.0248
-  SHORT FIRE  prob=0.6347 ✓
+2026-04-25 14:35 → 14:40 CST  price=2318.45
+  LONG  ✓✓    prob=0.6523  tp=+0.920% → 2339.79  sl=-0.153% → 2314.90
+        Pattern: L1
+  SHORT --    prob=0.0289  tp=+0.903% → 2297.51  sl=-0.155% → 2322.05
 ──────────────────────────────────────────────────────────
-  运行开始 2026-04-18 14:30:00 UTC
-  已检查 2 bars  |  LONG 触发 0 次  |  SHORT 触发 1 次
-  最近 SHORT: 1440 (0.63)
+  运行开始 2026-04-24 18:53:30 UTC
+  已检查 142 bars  |  LONG 触发 1 次  |  SHORT 触发 0 次
+  最近 LONG : 14:40 (0.65)
 ──────────────────────────────────────────────────────────
 ```
+
+形态编码说明见 `docs/pattern_codes.md`，输出格式说明见 `docs/signal_output_format.md`。
 
 ### 注意事项
 - 网络需能访问 `fapi.binance.com`（通过代理或直连）
 - 两个模型的 `feature_cols.txt` 必须和实盘特征完全对齐（均为 131 列，不含 OHLC）
 - 信号概率低（如 0.02-0.09）不代表方向相反，只代表当前 bar 无明确信号
+- 形态标记（Pattern）仅在触发信号时显示，NONE 表示未匹配已知成功形态
 
 ### 依赖
-Step 3 完成（`models/long/` 和 `models/short/` 均存在）
+Step 3 完成（`models/v1/long/` 和 `models/v1/short/` 均存在）
 
 ---
 
@@ -330,18 +336,21 @@ quantx/
 │   │   │   └── 4h/     ← Step 1 下载
 │   │   └── funding_rate/  ← Step 1 下载
 │   └── processed/
-│       ├── features_thr005_h30_long.parquet   ← Step 2 生成（340MB）
-│       └── features_thr005_h30_short.parquet  ← Step 2 生成（340MB）
+│       └── v1/
+│           ├── features_thr005_h30_long.parquet   ← Step 2 生成（334MB）
+│           └── features_thr005_h30_short.parquet  ← Step 2 生成（334MB）
 │
 ├── models/                ← Step 3 生成（已 gitignore）
-│   ├── long/
-│   │   ├── model_cls.json
-│   │   ├── model_max.json
-│   │   ├── model_min.json
-│   │   ├── calibrator.pkl
-│   │   ├── feature_cols.txt
-│   │   └── equity_curve.csv   ← Step 4 生成
-│   └── short/             ← 同上，已训练
+│   ├── v1/
+│   │   ├── long/
+│   │   │   ├── model_cls.json
+│   │   │   ├── model_max.json
+│   │   │   ├── model_min.json
+│   │   │   ├── calibrator.pkl
+│   │   │   ├── feature_cols.txt
+│   │   │   └── equity_curve.csv   ← Step 4 生成
+│   │   └── short/             ← 同上
+│   └── backups/               ← 旧版本备份
 │
 ├── src/
 │   ├── features/          ← Step 2 源码
@@ -363,7 +372,8 @@ quantx/
 │   ├── build_features.py  ← Step 2 入口
 │   ├── train_model.py     ← Step 3 入口
 │   ├── run_backtest.py    ← Step 4 入口
-│   └── run_signal.py      ← Step 5 入口（实时信号）
+│   ├── run_signal.py      ← Step 5 入口（实时信号）
+│   └── analyze_importance.py  ← 特征重要性分析
 │
 └── docs/
     └── pipeline_guide.md  ← 本文档
@@ -377,20 +387,21 @@ quantx/
 # 1. 下载数据（约 30–60 分钟）
 python scripts/download_data.py
 
-# 2. 生成特征（约 10–20 分钟）
+# 2. 生成特征（约 10–20 分钟，自动输出到 data/processed/v1/）
 python scripts/build_features.py --direction long  --threshold 0.005 --horizon 30
 python scripts/build_features.py --direction short --threshold 0.005 --horizon 30
 
-# 3. 训练模型（约 2 分钟/方向）
+# 3. 训练模型（约 2 分钟/方向，自动输出到 models/v1/）
 python scripts/train_model.py --direction long
 python scripts/train_model.py --direction short
 
 # 4. 回测验证（约 10–15 秒/方向）
-python scripts/run_backtest.py --direction long  --start 2024-04-01
-python scripts/run_backtest.py --direction short --start 2024-04-01
+python scripts/run_backtest.py --direction long  --start 2025-01-01
+python scripts/run_backtest.py --direction short --start 2025-01-01
 
-# 5. 实时信号（每 5 分钟输出一次 LONG/SHORT 概率）
-python scripts/run_signal.py
+# 5. 实时信号（每 5 分钟输出一次 LONG/SHORT 概率 + 形态标记）
+make start-bg
+make logs
 ```
 
 ---
@@ -401,12 +412,13 @@ python scripts/run_signal.py
 |---|---|
 | 标签阈值 0.5%，时间窗口 30min | 覆盖手续费（约 0.14%）后仍有足够盈利空间，窗口太长会产生太多假信号 |
 | 3-head 模型（分类 + 回归 × 2）| 分类头判断方向，回归头预测目标价位，信息更丰富 |
-| 回归头仅在正样本训练 | 负样本的 y_max/y_min 对于判断"涨到哪里"没有意义 |
+| 回归头全样本训练（已修复）| 仅正样本训练导致分布外预测，推理时对负样本预测失准 |
 | Walk-Forward 6 折验证 | 覆盖牛市/熊市/震荡多种市场状态，AUC std=0.008 表明模型稳健 |
 | Platt Scaling 校准 | 原始 XGBoost 概率值不准确，校准后信号 threshold 才有业务含义 |
 | 过滤周末 + 黑天鹅 | 周末流动性差模式不同；黑天鹅事件不可重现，让模型学到它们反而有害 |
 | 回测固定仓位 78U | 防止复利效应掩盖模型真实表现，保守基准更可信 |
-| 回测用 OOS 区间（2024-04 起）| 训练数据不能参与回测评估，否则是作弊 |
+| 回测用 next_bar_open 入场（已修复）| 消除 look-ahead bias，信号 bar 收盘后实际只能在下一根 bar 开盘成交 |
+| 形态识别（Pattern Matching）| 仅标记，不过滤，积累数据验证哪些形态真正有效 |
 
 ---
 
