@@ -1,5 +1,4 @@
 PYTHON   := python3
-VENV     := .venv
 SCRIPT   := scripts/run_signal.py
 LOG_DIR  := logs
 LOG_FILE := $(LOG_DIR)/signal_v1.log
@@ -7,19 +6,26 @@ PID_FILE := $(LOG_DIR)/signal_v1.pid
 
 .PHONY: init start start-bg stop status logs restart _logs_dir
 
-## init    — create .venv and install dependencies
+## init    — verify conda environment and install/update dependencies
 init: | _logs_dir
-	@$(PYTHON) -c "import sys; v=sys.version_info; ok=v>=(3,12); \
-	    print(f'Python {v.major}.{v.minor}.{v.micro}  ✓' if ok else \
-	          f'[WARN] Python {v.major}.{v.minor} detected — 3.12+ recommended')"
-	@if [ ! -d $(VENV) ]; then \
-		$(PYTHON) -m venv $(VENV); \
-		echo "Created $(VENV)"; \
+	@if [ -z "$$CONDA_DEFAULT_ENV" ]; then \
+		echo "❌ Error: Not in a conda environment"; \
+		echo ""; \
+		echo "This project requires conda. Please:"; \
+		echo "  1. Install conda: https://docs.conda.io/en/latest/miniconda.html"; \
+		echo "  2. Create environment: conda env create -f environment.yml"; \
+		echo "  3. Activate environment: conda activate quantx"; \
+		exit 1; \
+	else \
+		echo "✓ Conda environment: $$CONDA_DEFAULT_ENV"; \
+		$(PYTHON) -c "import sys; v=sys.version_info; \
+		    print(f'✓ Python {v.major}.{v.minor}.{v.micro}')"; \
+		echo ""; \
+		echo "Installing/updating dependencies..."; \
+		pip install -r requirements.txt; \
+		echo ""; \
+		echo "✓ Environment ready"; \
 	fi
-	$(VENV)/bin/pip install --upgrade pip -q
-	$(VENV)/bin/pip install -r requirements.txt
-	@echo ""
-	@echo "Done. Activate with: source $(VENV)/bin/activate"
 
 ## start   — run in foreground (Ctrl-C to stop)
 start:

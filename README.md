@@ -142,7 +142,7 @@ Makefile                 start / stop / status / logs / restart
 
 | Target | Action |
 |---|---|
-| `make init` | Create `.venv` and `pip install -r requirements.txt` |
+| `make init` | Verify conda environment and install/update dependencies |
 | `make start` | Run `run_signal.py` in foreground with countdown |
 | `make start-bg` | Start as background daemon; PID → `logs/signal-v1.pid` |
 | `make stop` | Send SIGTERM, wait up to 5 s for clean exit |
@@ -154,15 +154,35 @@ Makefile                 start / stop / status / logs / restart
 
 ## Setup (new machine)
 
+**Prerequisites:** This project requires conda. If you don't have it:
+- Install Miniconda: https://docs.conda.io/en/latest/miniconda.html
+
+**Installation:**
+
 ```bash
+# 1. Clone repository
 git clone <repo-url> quantx && cd quantx
-make init                              # creates .venv + pip install -r requirements.txt
-source .venv/bin/activate
+
+# 2. Create conda environment from config
+conda env create -f environment.yml
+
+# 3. Activate environment
+conda activate quantx
+
+# 4. Verify setup
+make init
+```
+
+**Alternative:** If you prefer using an existing conda environment (e.g., base):
+```bash
+conda activate <your-env>
+make init  # This will install/update dependencies
 ```
 
 Then proceed from **Quick Start Step 1** above.
 
 ## Requirements
 
-- Python 3.12
-- See [requirements.txt](requirements.txt) for pinned versions
+- **Conda** (required)
+- Python 3.12+ (automatically installed via environment.yml)
+- See [requirements.txt](requirements.txt) for Python package dependencies

@@ -2,7 +2,7 @@
 Download ETHUSDT U-margin futures data from Binance Data Portal.
 
 Data:
-  - klines: 1m / 5m / 15m / 1h / 4h
+  - klines: 1m / 3m / 5m / 15m / 1h / 4h
   - fundingRate
 
 Period: 2021-01 ~ present (auto-detects latest available month)
@@ -30,7 +30,7 @@ from tqdm import tqdm
 BASE_URL = "https://data.binance.vision/data/futures/um/monthly"
 DATA_ROOT = Path(__file__).parent.parent / "data" / "raw"
 
-KLINE_INTERVALS = ["1m", "5m", "15m", "1h", "4h"]
+KLINE_INTERVALS = ["1m", "3m", "5m", "15m", "1h", "4h", "1d", "1w"]
 START_YEAR, START_MONTH = 2021, 1
 
 MAX_WORKERS = 5          # concurrent downloads
