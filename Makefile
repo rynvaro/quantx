@@ -1,10 +1,18 @@
 PYTHON   := python3
 SCRIPT   := scripts/run_signal.py
 LOG_DIR  := logs
-LOG_FILE := $(LOG_DIR)/signal_v1.log
-PID_FILE := $(LOG_DIR)/signal_v1.pid
 
-.PHONY: init start start-bg stop status logs restart _logs_dir
+# ── Version control ───────────────────────────────────────────────────────────
+# Override on the command line: make start-bg VERSION=v1.0.1
+VERSION  ?= v1
+LOG_FILE  = $(LOG_DIR)/signal_$(VERSION).log
+PID_FILE  = $(LOG_DIR)/signal_$(VERSION).pid
+DATA_DIR  = data/processed/$(VERSION)
+MODEL_DIR = models/$(VERSION)
+
+.PHONY: init start start-bg stop status logs restart \
+        build-features train backtest feature-importance \
+        _logs_dir
 
 ## init    — verify conda environment and install/update dependencies
 init: | _logs_dir
@@ -29,22 +37,27 @@ init: | _logs_dir
 
 ## start   — run in foreground (Ctrl-C to stop)
 start:
-	$(PYTHON) $(SCRIPT)
+	$(PYTHON) $(SCRIPT) --long-model-dir $(MODEL_DIR)/long --short-model-dir $(MODEL_DIR)/short
 
-## start-bg — run in background, log to logs/signal.log
+## start-bg — run in background, log to logs/signal_$(VERSION).log
 start-bg: | _logs_dir
 	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
-		echo "Already running (PID $$(cat $(PID_FILE)))"; \
+		echo "⚠️  Already running VERSION=$(VERSION) (PID $$(cat $(PID_FILE)))"; \
+		echo "   Log: $(LOG_FILE)"; \
+		echo "   Use 'make stop VERSION=$(VERSION)' to stop it first."; \
 	else \
-		nohup $(PYTHON) -u $(SCRIPT) >> $(LOG_FILE) 2>&1 & \
+		nohup $(PYTHON) -u $(SCRIPT) \
+			--long-model-dir $(MODEL_DIR)/long \
+			--short-model-dir $(MODEL_DIR)/short \
+			>> $(LOG_FILE) 2>&1 & \
 		echo $$! > $(PID_FILE); \
-		echo "Started (PID $$(cat $(PID_FILE))) — log: $(LOG_FILE)"; \
+		echo "Started VERSION=$(VERSION) (PID $$(cat $(PID_FILE))) — log: $(LOG_FILE)"; \
 	fi
 
 ## stop    — send SIGTERM, wait for clean shutdown
 stop:
 	@if [ ! -f $(PID_FILE) ]; then \
-		echo "No PID file found ($(PID_FILE))"; \
+		echo "No PID file found for VERSION=$(VERSION) ($(PID_FILE))"; \
 	else \
 		PID=$$(cat $(PID_FILE)); \
 		if kill -0 $$PID 2>/dev/null; then \
@@ -63,6 +76,7 @@ stop:
 
 ## status  — show whether process is running + last 5 log lines
 status:
+	@echo "VERSION=$(VERSION)"
 	@if [ -f $(PID_FILE) ]; then \
 		PID=$$(cat $(PID_FILE)); \
 		if kill -0 $$PID 2>/dev/null; then \
@@ -85,6 +99,46 @@ logs:
 
 ## restart — stop then start in background
 restart: stop start-bg
+
+## build-features — build feature parquets for both directions (VERSION controls output path)
+##   make build-features VERSION=v1.0.1
+build-features: | _logs_dir
+	@echo "Building features → $(DATA_DIR)/ (long)"
+	$(PYTHON) scripts/build_features.py --output $(DATA_DIR)/features_thr005_h30_long.parquet --direction long
+	@echo "Building features → $(DATA_DIR)/ (short)"
+	$(PYTHON) scripts/build_features.py --output $(DATA_DIR)/features_thr005_h30_short.parquet --direction short
+
+## train — train long + short models (VERSION controls input/output paths)
+##   make train VERSION=v1.0.1
+train:
+	@echo "Training LONG model → $(MODEL_DIR)/long"
+	$(PYTHON) scripts/train_model.py --direction long \
+		--input $(DATA_DIR)/features_thr005_h30_long.parquet \
+		--output $(MODEL_DIR)/long
+	@echo "Training SHORT model → $(MODEL_DIR)/short"
+	$(PYTHON) scripts/train_model.py --direction short \
+		--input $(DATA_DIR)/features_thr005_h30_short.parquet \
+		--output $(MODEL_DIR)/short
+
+## backtest — run backtest for both directions
+##   make backtest VERSION=v1.0.1 [START=2024-04-01]
+backtest:
+	@echo "Backtesting LONG — $(MODEL_DIR)/long"
+	$(PYTHON) scripts/run_backtest.py --direction long \
+		--input $(DATA_DIR)/features_thr005_h30_long.parquet \
+		--models $(MODEL_DIR)/long \
+		$(if $(START),--start $(START),)
+	@echo "Backtesting SHORT — $(MODEL_DIR)/short"
+	$(PYTHON) scripts/run_backtest.py --direction short \
+		--input $(DATA_DIR)/features_thr005_h30_short.parquet \
+		--models $(MODEL_DIR)/short \
+		$(if $(START),--start $(START),)
+
+## feature-importance — analyze feature importance for trained models
+##   make feature-importance VERSION=v1.0.1
+feature-importance:
+	@echo "Analyzing feature importance — $(MODEL_DIR)"
+	$(PYTHON) scripts/analyze_importance.py --models-dir $(MODEL_DIR)
 
 _logs_dir:
 	mkdir -p $(LOG_DIR)

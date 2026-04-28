@@ -168,6 +168,11 @@ def _add_micro_features(
     tbr = taker_buy / vol.replace(0.0, np.nan)
     out[f"taker_buy_ratio{suffix}"] = tbr
 
+    # tbr_trend: short-term taker_buy_ratio MA minus long-term MA.
+    # Positive = buy pressure building (leads price up); negative = selling pressure.
+    # Short window=5 bars, long window=15 bars — balances sensitivity vs noise.
+    out[f"tbr_trend{suffix}"] = tbr.rolling(5).mean() - tbr.rolling(15).mean()
+
     if direction == "long":
         consec = consecutive_true(cl > cl.shift(1))
         bsipi = (tbr - 0.5).rolling(10).mean() * np.sqrt(consec + 1.0)
@@ -197,6 +202,13 @@ def _add_micro_features(
     impact = cl.diff().abs() / vol.replace(0.0, np.nan)
     pei = impact.ewm(span=5, adjust=False).mean() / impact.ewm(span=20, adjust=False).mean().replace(0.0, np.nan) - 1.0
     out[f"pei{suffix}"] = pei
+
+    # vol_inefficiency: excess volume relative to price move.
+    # = (vol / vol_MA5) / (|roc1| + epsilon).  High value means lots of volume
+    # absorbed with little price change — signals hidden distribution/accumulation
+    # and often precedes a directional break.
+    vol_ma5 = vol.rolling(5).mean().replace(0.0, np.nan)
+    out[f"vol_inefficiency{suffix}"] = (vol / vol_ma5) / (roc1.abs() + 1e-6)
 
     # ── Spring Physics Features (Experimental P2) ─────────────────────────────
     compress_int = compress_bars.astype(int)
