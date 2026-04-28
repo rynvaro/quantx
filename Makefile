@@ -1,4 +1,4 @@
-PYTHON   := python3
+PYTHON   := conda run -n base python
 SCRIPT   := scripts/run_signal.py
 LOG_DIR  := logs
 
@@ -95,7 +95,8 @@ status:
 
 ## logs    — tail -f the log file
 logs:
-	tail -f $(LOG_FILE)
+	@echo "[VERSION=$(VERSION)] $(LOG_FILE)"
+	@tail -f $(LOG_FILE)
 
 ## restart — stop then start in background
 restart: stop start-bg
