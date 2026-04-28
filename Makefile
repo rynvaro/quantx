@@ -1,4 +1,4 @@
-PYTHON   := conda run -n base python
+PYTHON   := $(shell conda run -n base which python 2>/dev/null || echo python3)
 SCRIPT   := scripts/run_signal.py
 LOG_DIR  := logs
 
