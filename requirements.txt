@@ -3,4 +3,8 @@ pandas==3.0.2
 requests==2.32.3
 scikit-learn==1.8.0
 scipy==1.17.1
+# xgboost: on Linux use conda-forge to avoid pulling nvidia-nccl CUDA deps:
+#   conda install -n base -c conda-forge xgboost=3.2.0
+# On macOS/Windows pip is fine:
+#   pip install xgboost==3.2.0
 xgboost==3.2.0
