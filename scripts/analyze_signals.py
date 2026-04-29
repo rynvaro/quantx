@@ -266,8 +266,114 @@ def _pnl(results: list[dict]) -> float:
     return total
 
 
+# ── Entry context + cascade helpers ──────────────────────────────────────────
+
+def compute_entry_context(results: list[dict],
+                          bar_map: dict[int, dict]) -> list[dict]:
+    """
+    Enrich each result with market context at signal entry:
+      trend_1h   : prior-1h price trend  (UP / DN / FL)
+      trend_15m  : prior-15m price trend (UP / DN / FL)
+      ext_1h_pct : actual % move in prior 1h (positive = up)
+      trend_align: signal direction vs 1h trend (WITH / AGST / FLAT)
+    """
+    out = []
+    for r in results:
+        ms = int(r["ts_utc"].timestamp() * 1000)
+        ep = r["entry_price"]
+        d  = r["direction"]
+
+        b1h  = bar_map.get(ms - 12 * 300_000)   # 1h ago
+        b15m = bar_map.get(ms -  3 * 300_000)   # 15m ago
+
+        if b1h and b1h["c"] > 0:
+            roc_1h = (ep - b1h["c"]) / b1h["c"]
+            trend_1h = "UP" if roc_1h >  0.003 else "DN" if roc_1h < -0.003 else "FL"
+        else:
+            roc_1h, trend_1h = 0.0, "??"
+
+        if b15m and b15m["c"] > 0:
+            roc_15m = (ep - b15m["c"]) / b15m["c"]
+            trend_15m = "UP" if roc_15m >  0.001 else "DN" if roc_15m < -0.001 else "FL"
+        else:
+            trend_15m = "??"
+
+        if trend_1h == "??":
+            align = "??"
+        elif (d == "LONG"  and trend_1h == "UP") or \
+             (d == "SHORT" and trend_1h == "DN"):
+            align = "WITH"
+        elif trend_1h == "FL":
+            align = "FLAT"
+        else:
+            align = "AGST"
+
+        out.append({**r,
+                    "trend_1h":    trend_1h,
+                    "trend_15m":   trend_15m,
+                    "ext_1h_pct":  roc_1h * 100,
+                    "trend_align": align})
+    return out
+
+
+def detect_cascades(results: list[dict],
+                    window_min: int = 30,
+                    min_size: int = 3) -> list[list[dict]]:
+    """
+    Return groups of >=min_size consecutive same-direction signals
+    each within window_min minutes of the previous one in the group.
+    """
+    if not results:
+        return []
+    srt = sorted(results, key=lambda x: x["ts_utc"])
+    cascades, i = [], 0
+    while i < len(srt):
+        grp = [srt[i]]
+        j = i + 1
+        while j < len(srt):
+            gap = (srt[j]["ts_utc"] - grp[-1]["ts_utc"]).total_seconds() / 60
+            if srt[j]["direction"] == grp[0]["direction"] and gap <= window_min:
+                grp.append(srt[j])
+                j += 1
+            else:
+                break
+        if len(grp) >= min_size:
+            cascades.append(grp)
+            i = j
+        else:
+            i += 1
+    return cascades
+
+
+def _trace(entry_ms: int, direction: str, ep: float,
+           tp: float, sl: float, outcome: str,
+           exit_bar: int | None,
+           bar_map: dict[int, dict], horizon: int) -> str:
+    """Compact price trace: one char per bar (▲▼─) then ✓/✗ at exit bar."""
+    chars = []
+    for i in range(1, horizon + 1):
+        b = bar_map.get(entry_ms + i * 300_000)
+        if not b:
+            chars.append("·")
+            continue
+        if outcome == "TP" and exit_bar == i:
+            chars.append("✓")
+            break
+        if outcome == "SL" and exit_bar == i:
+            chars.append("✗")
+            break
+        c = b["c"]
+        pct = (c - ep) / ep
+        if direction == "LONG":
+            chars.append("▲" if pct >  0.001 else "▼" if pct < -0.001 else "─")
+        else:
+            chars.append("▼" if pct < -0.001 else "▲" if pct >  0.001 else "─")
+    return "".join(chars)
+
+
 def print_report(label: str, signals: list[dict], results: list[dict],
-                 all_bars: list[dict], missed: list[dict], horizon: int) -> None:
+                 all_bars: list[dict], missed: list[dict], horizon: int,
+                 bar_map: dict[int, dict]) -> None:
     cst = timedelta(hours=8)
     sep = "=" * 72
 
@@ -377,21 +483,109 @@ def print_report(label: str, signals: list[dict], results: list[dict],
                   f"{m['roc_pct']:>+6.2f}%  {m['open']:>8.2f}  {m['close']:>8.2f}  "
                   f"{m['max_prob']:>7.4f}  {m['avg_prob']:>7.4f}{flag}")
 
-    # 7. Signal detail
-    print(f"\n[7] SIGNAL DETAIL")
-    print(f"  {'Time(CST)':>16}  {'Dir':5}  {'Prob':>6}  {'Entry':>8}  "
-          f"{'R':>5}  {'Pattern':10}  {'Out':4}  {'Bar':>4}")
-    print(f"  {'-'*72}")
-    for r in results:
-        ts_cst = r["ts_utc"] + cst
-        ep = r["entry_price"]
-        sl_pct = abs(r["sl_price"] - ep) / ep if ep > 0 else 0
-        tp_pct = abs(r["tp_price"] - ep) / ep if ep > 0 else 0
-        rr = f"{tp_pct/sl_pct:.1f}x" if sl_pct > 0 else "n/a"
-        bar_info = f"+{r['exit_bar']:2d}" if r["exit_bar"] else "  --"
-        pat = (r.get("pattern") or "NONE")[:10]
-        print(f"  {ts_cst.strftime('%m-%d %H:%M'):>16}  {r['direction']:5}  "
-              f"{r['prob']:.4f}  {ep:>8.2f}  {rr:>5}  {pat:10}  {r['outcome']:4}  {bar_info}")
+    # 7 + 8 + 9: enriched signal detail, trend alignment, cascade analysis
+    ctx = compute_entry_context(results, bar_map)
+    cascades = detect_cascades(results)
+    cascade_ids: set[int] = set()
+    for grp in cascades:
+        for r in grp:
+            cascade_ids.add(id(r))
+    # map id(result) -> cascade group
+    casc_map: dict[int, list] = {}
+    for grp in cascades:
+        for r in grp:
+            casc_map[id(r)] = grp
+
+    print(f"\n[7] SIGNAL DETAIL  "
+          f"(1h/15m=prior trend UP/DN/FL, Ext=prior1h%, Align=WITH/AGST, trace=price path)")
+    hdr = (f"  {'Time(CST)':14}  {'Dir':5}  {'Prob':6}  "
+           f"{'1h':3} {'15m':3}  {'Ext1h%':7}  {'Align':5}  {'R':5}  "
+           f"{'Out':4} {'Bar':3}  {'Trace'}")
+    print(hdr)
+    print("  " + "-" * (len(hdr) - 1))
+    for c in ctx:
+        ts_cst  = c["ts_utc"] + cst
+        ep      = c["entry_price"]
+        sl_pct  = abs(c["sl_price"] - ep) / ep if ep > 0 else 0
+        tp_pct  = abs(c["tp_price"] - ep) / ep if ep > 0 else 0
+        rr      = f"{tp_pct/sl_pct:.1f}x" if sl_pct > 0 else " n/a"
+        bar_info = f"+{c['exit_bar']:2d}" if c["exit_bar"] else " --"
+        entry_ms = int(c["ts_utc"].timestamp() * 1000)
+        tr = _trace(entry_ms, c["direction"], ep,
+                    c["tp_price"], c["sl_price"],
+                    c["outcome"], c["exit_bar"], bar_map, horizon)
+        casc_flag = " CASCADE" if id(c) in cascade_ids else ""
+        notes = []
+        if c["trend_align"] == "AGST":
+            notes.append("counter-trend")
+        if abs(c["ext_1h_pct"]) > 0.8:
+            notes.append(f"ext{'↑' if c['ext_1h_pct']>0 else '↓'}{abs(c['ext_1h_pct']):.1f}%")
+        if casc_flag:
+            notes.append(f"cascade×{len(casc_map.get(id(c),[]))}")
+        note_str = "  ← " + ", ".join(notes) if notes else ""
+        print(f"  {ts_cst.strftime('%m-%d %H:%M'):14}  {c['direction']:5}  {c['prob']:.4f}  "
+              f"{c['trend_1h']:3} {c['trend_15m']:3}  {c['ext_1h_pct']:+7.2f}%  "
+              f"{c['trend_align']:5}  {rr:5}  {c['outcome']:4} {bar_info}  {tr}{note_str}")
+
+    # 8. Trend alignment summary
+    align_stats: dict[str, dict] = defaultdict(lambda: {"tp": 0, "sl": 0, "open": 0})
+    for c in ctx:
+        align_stats[c["trend_align"]][c["outcome"].lower()] += 1
+    print(f"\n[8] TREND ALIGNMENT SUMMARY  "
+          f"(does signal direction agree with prior 1h trend?)")
+    print(f"  {'Align':6}  {'Signals':>7}  {'TP':>4}  {'SL':>4}  {'OPEN':>4}  {'Win%':>14}")
+    print(f"  {'-'*6}  {'-'*7}  {'-'*4}  {'-'*4}  {'-'*4}  {'-'*14}")
+    order = ["WITH", "FLAT", "AGST", "??"]
+    for al in order:
+        if al not in align_stats:
+            continue
+        st = align_stats[al]
+        tot = st["tp"] + st["sl"] + st["open"]
+        note = "  ← main failure" if al == "AGST" and st["sl"] > st["tp"] else ""
+        print(f"  {al:6}  {tot:>7}  {st['tp']:>4}  {st['sl']:>4}  {st['open']:>4}  "
+              f"{_win_str(st['tp'], st['sl']):>14}{note}")
+
+    # Overextension summary
+    ext_hi  = [c for c in ctx if abs(c["ext_1h_pct"]) > 0.8]
+    ext_lo  = [c for c in ctx if abs(c["ext_1h_pct"]) <= 0.8]
+    if ext_hi:
+        tp_h = sum(1 for c in ext_hi if c["outcome"] == "TP")
+        sl_h = sum(1 for c in ext_hi if c["outcome"] == "SL")
+        tp_l = sum(1 for c in ext_lo if c["outcome"] == "TP")
+        sl_l = sum(1 for c in ext_lo if c["outcome"] == "SL")
+        print(f"\n  Overextension (prior 1h move > ±0.8%)")
+        print(f"  Ext  signals={len(ext_hi):3d}  win={_win_str(tp_h, sl_h)}")
+        print(f"  Norm signals={len(ext_lo):3d}  win={_win_str(tp_l, sl_l)}")
+
+    # 9. Cascade analysis
+    if cascades:
+        print(f"\n[9] CASCADE ANALYSIS  "
+              f"(≥3 same-direction signals each within 30min of the previous)")
+        casc_tp = casc_sl = 0
+        for grp in cascades:
+            g_tp = sum(1 for r in grp if r["outcome"] == "TP")
+            g_sl = sum(1 for r in grp if r["outcome"] == "SL")
+            g_op = sum(1 for r in grp if r["outcome"] == "OPEN")
+            casc_tp += g_tp
+            casc_sl += g_sl
+            start_cst = grp[0]["ts_utc"] + cst
+            end_cst   = grp[-1]["ts_utc"] + cst
+            # 1h trend context for the group
+            c0 = next((c for c in ctx if c["ts_utc"] == grp[0]["ts_utc"]), None)
+            trend_note = f"  1h={c0['trend_1h']}" if c0 else ""
+            print(f"  {start_cst.strftime('%m-%d %H:%M')}–"
+                  f"{end_cst.strftime('%H:%M')}  "
+                  f"{grp[0]['direction']} ×{len(grp):2d}  "
+                  f"[{g_tp} TP / {g_sl} SL / {g_op} OPEN]{trend_note}")
+        iso = [r for r in results if id(r) not in cascade_ids]
+        iso_tp = sum(1 for r in iso if r["outcome"] == "TP")
+        iso_sl = sum(1 for r in iso if r["outcome"] == "SL")
+        print(f"\n  Cascade  signals={sum(len(g) for g in cascades):3d}  "
+              f"win={_win_str(casc_tp, casc_sl)}")
+        print(f"  Isolated signals={len(iso):3d}  "
+              f"win={_win_str(iso_tp, iso_sl)}")
+    else:
+        print(f"\n[9] CASCADE ANALYSIS  no cascades (≥3 same-dir within 30min) detected")
 
 
 def print_comparison(label_a: str, res_a: list[dict], bars_a: list[dict],
@@ -488,7 +682,8 @@ def main() -> None:
         print("No bars found. Exiting.")
         sys.exit(1)
 
-    fetch_start = min(all_bars_ts) + timedelta(minutes=5)
+    # extend backwards 1h to provide trend context for first signals
+    fetch_start = min(all_bars_ts) - timedelta(hours=1, minutes=5)
     fetch_end   = max(all_bars_ts) + timedelta(hours=3)
 
     print(f"Fetching 5m klines {fetch_start.strftime('%Y-%m-%d %H:%M')} → "
@@ -509,9 +704,9 @@ def main() -> None:
                                                  key=lambda x: x["ts_utc"])
     missed = find_missed_moves(ref_bars, bars_1h, args.move_threshold)
 
-    print_report(label_a, signals_a, results_a, bars_a, missed, args.horizon)
+    print_report(label_a, signals_a, results_a, bars_a, missed, args.horizon, bar_map_5m)
     if signals_b:
-        print_report(label_b, signals_b, results_b, bars_b, missed, args.horizon)
+        print_report(label_b, signals_b, results_b, bars_b, missed, args.horizon, bar_map_5m)
         print_comparison(label_a, results_a, bars_a, label_b, results_b, bars_b)
 
     print(f"\n{'='*72}")
