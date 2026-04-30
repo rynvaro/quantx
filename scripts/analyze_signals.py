@@ -538,11 +538,128 @@ def print_report(label: str, signals: list[dict], results: list[dict],
     print(f"  Takeaway: {total} total signals — "
           f"at 6-bar horizon {sum(1 for r in results if r['outcome']!='OPEN')}/{total} resolved.")
 
+    # 3c. Pure TP/SL breakdown (horizon=288 bars = 24h, forces full resolution)
+    FULL_H = 288
+    full = evaluate(signals, bar_map, FULL_H)
+    unresolved = sum(1 for r in full if r["outcome"] == "OPEN")
+    full_ctx = compute_entry_context(full, bar_map)
+
+    print(f"\n[3c] PURE TP/SL BREAKDOWN  "
+          f"(horizon={FULL_H} bars={FULL_H*5//60}h — {unresolved} still unresolved)")
+
+    f_tp  = [r for r in full if r["outcome"] == "TP"]
+    f_sl  = [r for r in full if r["outcome"] == "SL"]
+    f_res = f_tp + f_sl
+    l_full = [r for r in f_res if r["direction"] == "LONG"]
+    s_full = [r for r in f_res if r["direction"] == "SHORT"]
+
+    # Overall
+    print(f"\n  Overall  TP={len(f_tp)}  SL={len(f_sl)}  "
+          f"unresolved={unresolved}  "
+          f"win={_win_str(len(f_tp), len(f_sl))}")
+    print(f"  LONG     TP={sum(1 for r in l_full if r['outcome']=='TP')}  "
+          f"SL={sum(1 for r in l_full if r['outcome']=='SL')}  "
+          f"win={_win_str(sum(1 for r in l_full if r['outcome']=='TP'), sum(1 for r in l_full if r['outcome']=='SL'))}")
+    print(f"  SHORT    TP={sum(1 for r in s_full if r['outcome']=='TP')}  "
+          f"SL={sum(1 for r in s_full if r['outcome']=='SL')}  "
+          f"win={_win_str(sum(1 for r in s_full if r['outcome']=='TP'), sum(1 for r in s_full if r['outcome']=='SL'))}")
+
+    # R-ratio distribution for TP vs SL
+    def _r(sig: dict) -> float:
+        ep = sig["entry_price"]
+        if ep <= 0: return 0.0
+        sl_d = abs(sig["sl_price"] - ep) / ep
+        tp_d = abs(sig["tp_price"] - ep) / ep
+        return tp_d / sl_d if sl_d > 0 else 0.0
+
+    tp_r  = [_r(r) for r in f_tp]
+    sl_r  = [_r(r) for r in f_sl]
+    tp_eb = [r["exit_bar"] for r in f_tp  if r["exit_bar"]]
+    sl_eb = [r["exit_bar"] for r in f_sl  if r["exit_bar"]]
+    ev_pct = sum(_r(r) for r in f_tp) - len(f_sl)  # EV in units of SL-size (1R per SL)
+    if f_res:
+        wr = len(f_tp) / len(f_res)
+        avg_r = sum(tp_r) / len(tp_r) if tp_r else 0
+        ev = wr * avg_r - (1 - wr) * 1.0
+        print(f"\n  R-ratio  avg={sum(tp_r)/len(tp_r):.2f}x  "
+              f"min={min(tp_r):.2f}x  max={max(tp_r):.2f}x  (TP trades)")
+        print(f"  EV/trade : win%={wr*100:.1f}%  avgR={avg_r:.2f}  "
+              f"→  {wr:.3f}×{avg_r:.2f} − {1-wr:.3f}×1.00 = {ev:+.3f}R")
+        if tp_eb: print(f"  Avg TP bar : +{sum(tp_eb)/len(tp_eb):.1f} ({sum(tp_eb)/len(tp_eb)*5:.0f}min)")
+        if sl_eb: print(f"  Avg SL bar : +{sum(sl_eb)/len(sl_eb):.1f} ({sum(sl_eb)/len(sl_eb)*5:.0f}min)")
+
+    # R-bucket breakdown (purely TP/SL)
+    buckets_r = [(0, 1), (1, 1.5), (1.5, 2), (2, 3), (3, 99)]
+    print(f"\n  R-ratio buckets (TP/SL per R-bracket):")
+    print(f"  {'R range':>12}  {'signals':>7}  {'TP':>4}  {'SL':>4}  {'Win%':>12}")
+    print(f"  {'-'*12}  {'-'*7}  {'-'*4}  {'-'*4}  {'-'*12}")
+    for lo_r, hi_r in buckets_r:
+        bucket = [r for r in f_res if lo_r <= _r(r) < hi_r]
+        b_tp = sum(1 for r in bucket if r["outcome"] == "TP")
+        b_sl = sum(1 for r in bucket if r["outcome"] == "SL")
+        label = f"{lo_r:.1f}–{hi_r:.1f}x" if hi_r < 99 else f"{lo_r:.1f}x+"
+        print(f"  {label:>12}  {len(bucket):>7}  {b_tp:>4}  {b_sl:>4}  "
+              f"{_win_str(b_tp, b_sl):>12}")
+
+    # By pattern
+    pat_full: dict[str, dict] = defaultdict(lambda: {"tp": 0, "sl": 0})
+    for r in f_res:
+        pat_full[r.get("pattern") or "NONE"][r["outcome"].lower()] += 1
+    print(f"\n  By pattern  (fully resolved only):")
+    print(f"  {'Pattern':10}  {'TP':>4}  {'SL':>4}  {'Win%':>12}")
+    print(f"  {'-'*10}  {'-'*4}  {'-'*4}  {'-'*12}")
+    for pat, st in sorted(pat_full.items()):
+        print(f"  {pat:10}  {st['tp']:>4}  {st['sl']:>4}  "
+              f"{_win_str(st['tp'], st['sl']):>12}")
+
+    # By time-of-day
+    hour_full: dict[int, dict] = defaultdict(lambda: {"tp": 0, "sl": 0})
+    for r in f_res:
+        h_key = (r["ts_utc"] + cst).hour
+        hour_full[h_key][r["outcome"].lower()] += 1
+    print(f"\n  By hour (CST)  (fully resolved only):")
+    print(f"  {'Hour':>4}  {'TP':>4}  {'SL':>4}  {'Win%':>12}")
+    print(f"  {'-'*4}  {'-'*4}  {'-'*4}  {'-'*12}")
+    for h_key in sorted(hour_full):
+        st = hour_full[h_key]
+        print(f"  {h_key:>4}  {st['tp']:>4}  {st['sl']:>4}  "
+              f"{_win_str(st['tp'], st['sl']):>12}")
+
+    # By trend alignment
+    align_full: dict[str, dict] = defaultdict(lambda: {"tp": 0, "sl": 0})
+    for c in full_ctx:
+        if c["outcome"] == "OPEN":
+            continue
+        align_full[c["trend_align"]][c["outcome"].lower()] += 1
+    print(f"\n  By 1h trend alignment  (fully resolved only):")
+    print(f"  {'Align':6}  {'TP':>4}  {'SL':>4}  {'Win%':>12}")
+    print(f"  {'-'*6}  {'-'*4}  {'-'*4}  {'-'*12}")
+    for al in ["WITH", "FLAT", "AGST", "??"]:
+        if al not in align_full:
+            continue
+        st = align_full[al]
+        note = "  ← 逆势" if al == "AGST" else ""
+        print(f"  {al:6}  {st['tp']:>4}  {st['sl']:>4}  "
+              f"{_win_str(st['tp'], st['sl']):>12}{note}")
+
+    # By prob band
+    prob_bands = [(0.5, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 1.01)]
+    print(f"\n  By entry prob band  (fully resolved only):")
+    print(f"  {'Prob band':>10}  {'TP':>4}  {'SL':>4}  {'Win%':>12}")
+    print(f"  {'-'*10}  {'-'*4}  {'-'*4}  {'-'*12}")
+    for lo_p, hi_p in prob_bands:
+        band = [r for r in f_res if lo_p <= r["prob"] < hi_p]
+        b_tp = sum(1 for r in band if r["outcome"] == "TP")
+        b_sl = sum(1 for r in band if r["outcome"] == "SL")
+        label = f"{lo_p:.1f}–{hi_p:.1f}"
+        print(f"  {label:>10}  {b_tp:>4}  {b_sl:>4}  "
+              f"{_win_str(b_tp, b_sl):>12}")
+
     # 4. Pattern breakdown
     pat_stats: dict[str, dict] = defaultdict(lambda: {"tp": 0, "sl": 0, "open": 0})
     for r in results:
         pat_stats[r.get("pattern") or "NONE"][r["outcome"].lower()] += 1
-    print(f"\n[4] PATTERN BREAKDOWN")
+    print(f"\n[4] PATTERN BREAKDOWN  (horizon={horizon} bars, includes OPEN)")
     print(f"  {'Pattern':10}  {'TP':>4}  {'SL':>4}  {'OPEN':>4}  {'Win%':>12}")
     print(f"  {'-'*10}  {'-'*4}  {'-'*4}  {'-'*4}  {'-'*12}")
     for pat, st in sorted(pat_stats.items()):
