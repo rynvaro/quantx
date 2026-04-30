@@ -345,6 +345,68 @@ def detect_cascades(results: list[dict],
     return cascades
 
 
+def horizon_sensitivity(signals: list[dict],
+                        bar_map: dict[int, dict],
+                        horizons: list[int] | None = None) -> list[dict]:
+    """
+    For each horizon in `horizons`, re-evaluate every signal and return
+    a list of dicts: {horizon, tp, sl, open, win_pct, long_tp, long_sl,
+    short_tp, short_sl, first_tp_pct, first_sl_pct}.
+    This shows how win rate and OPEN count change as we allow more time.
+    """
+    if horizons is None:
+        horizons = [3, 6, 12, 24, 36, 48, 72]
+    rows = []
+    for h in horizons:
+        tp = sl = op = l_tp = l_sl = s_tp = s_sl = 0
+        first_tp_bars: list[int] = []
+        first_sl_bars: list[int] = []
+        for sig in signals:
+            ms = int(sig["ts_utc"].timestamp() * 1000)
+            direction = sig["direction"]
+            tp_p, sl_p = sig["tp_price"], sig["sl_price"]
+            outcome = "OPEN"
+            exit_b = None
+            for i in range(1, h + 1):
+                b = bar_map.get(ms + i * 300_000)
+                if not b:
+                    continue
+                hi, lo = b["h"], b["l"]
+                if direction == "LONG":
+                    if lo <= sl_p:
+                        outcome, exit_b = "SL", i; break
+                    if hi >= tp_p:
+                        outcome, exit_b = "TP", i; break
+                else:
+                    if hi >= sl_p:
+                        outcome, exit_b = "SL", i; break
+                    if lo <= tp_p:
+                        outcome, exit_b = "TP", i; break
+            if outcome == "TP":
+                tp += 1
+                first_tp_bars.append(exit_b)
+                if direction == "LONG":  l_tp += 1
+                else:                   s_tp += 1
+            elif outcome == "SL":
+                sl += 1
+                first_sl_bars.append(exit_b)
+                if direction == "LONG":  l_sl += 1
+                else:                   s_sl += 1
+            else:
+                op += 1
+        resolved = tp + sl
+        rows.append({
+            "horizon": h,
+            "tp": tp, "sl": sl, "open": op,
+            "win_pct": tp / resolved * 100 if resolved else float("nan"),
+            "l_tp": l_tp, "l_sl": l_sl,
+            "s_tp": s_tp, "s_sl": s_sl,
+            "avg_tp_bar": sum(first_tp_bars) / len(first_tp_bars) if first_tp_bars else float("nan"),
+            "avg_sl_bar": sum(first_sl_bars) / len(first_sl_bars) if first_sl_bars else float("nan"),
+        })
+    return rows
+
+
 def _trace(entry_ms: int, direction: str, ep: float,
            tp: float, sl: float, outcome: str,
            exit_bar: int | None,
@@ -445,6 +507,36 @@ def print_report(label: str, signals: list[dict], results: list[dict],
         print(f"  Avg R-ratio    : {sum(r_ratios)/len(r_ratios):.2f}x  "
               f"(min={min(r_ratios):.2f}  max={max(r_ratios):.2f})")
     print(f"  Simulated PnL  : {_pnl(results):+.2f}R  (1R = SL% per trade)")
+
+    # 3b. Multi-horizon sensitivity
+    sens = horizon_sensitivity(signals, bar_map)
+    print(f"\n[3b] WIN RATE SENSITIVITY  (same signals re-evaluated at each horizon)")
+    print(f"  {'Horizon':>10}  {'TP':>4}  {'SL':>4}  {'OPEN':>5}  {'Win%':>12}  "
+          f"{'LONG win%':>12}  {'SHORT win%':>12}  "
+          f"{'AvgTP-bar':>9}  {'AvgSL-bar':>9}")
+    print(f"  {'-'*10}  {'-'*4}  {'-'*4}  {'-'*5}  {'-'*12}  {'-'*12}  {'-'*12}  {'-'*9}  {'-'*9}")
+    prev_win = None
+    for row in sens:
+        h_label = f"{row['horizon']} ({row['horizon']*5}m)"
+        win_s = f"{row['win_pct']:.1f}%" if row['win_pct'] == row['win_pct'] else "n/a"
+        # Highlight the user's configured horizon
+        marker = " *" if row["horizon"] == horizon else "  "
+        delta = ""
+        if prev_win is not None and row['win_pct'] == row['win_pct']:
+            d = row['win_pct'] - prev_win
+            delta = f" ({d:+.1f}pp)"
+        l_win = _win_str(row['l_tp'], row['l_sl'])
+        s_win = _win_str(row['s_tp'], row['s_sl'])
+        atp = f"+{row['avg_tp_bar']:.1f}" if row['avg_tp_bar'] == row['avg_tp_bar'] else " n/a"
+        asl = f"+{row['avg_sl_bar']:.1f}" if row['avg_sl_bar'] == row['avg_sl_bar'] else " n/a"
+        print(f"{marker} {h_label:>10}  {row['tp']:>4}  {row['sl']:>4}  {row['open']:>5}  "
+              f"{win_s+delta:>12}  {l_win:>12}  {s_win:>12}  {atp:>9}  {asl:>9}")
+        if row['win_pct'] == row['win_pct']:
+            prev_win = row['win_pct']
+    print(f"  (* = configured horizon)")
+    total = len(signals)
+    print(f"  Takeaway: {total} total signals — "
+          f"at 6-bar horizon {sum(1 for r in results if r['outcome']!='OPEN')}/{total} resolved.")
 
     # 4. Pattern breakdown
     pat_stats: dict[str, dict] = defaultdict(lambda: {"tp": 0, "sl": 0, "open": 0})
