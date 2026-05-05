@@ -1,7 +1,8 @@
 # 方向感知特征 Bug 全面分析
 
 > 创建日期：2026-05-05  
-> 状态：**待修复**（用户指令：先不改代码）  
+> 修复日期：2026-05-05  
+> 状态：**✅ 全部已修复**（feature/v1.0.2，commit 08110d1）  
 > 相关文件：`src/features/timeframe.py`、`src/live/indicator.py`
 
 ---
@@ -23,7 +24,7 @@
 
 ## Bug 列表
 
-### Bug 1 🔴 CRITICAL — `indicator.py` 缺少 `direction` 传参
+### Bug 1 ✅ FIXED — `indicator.py` 缺少 `direction` 传参
 
 **文件**：`src/live/indicator.py`  
 **位置**：L60（每个 tf 循环内的 `compute_features` 调用）
@@ -47,7 +48,7 @@ feat = compute_features(df_raw, tf, include_p2=False, direction=direction)
 
 ---
 
-### Bug 2 🔴 HIGH — `tbr_trend` 对 SHORT 方向语义相反
+### Bug 2 ✅ FIXED — `tbr_trend` 对 SHORT 方向语义相反
 
 **文件**：`src/features/timeframe.py`  
 **位置**：L174
@@ -98,7 +99,7 @@ else:
 
 ---
 
-### Bug 3 🟡 MEDIUM — `trigger_score` 对 SHORT 方向语义不一致
+### Bug 3 ✅ FIXED — `trigger_score` 对 SHORT 方向语义不一致
 
 **文件**：`src/features/timeframe.py`  
 **位置**：L166（`trigger_score` 计算）
@@ -129,7 +130,7 @@ out[f"trigger_score{suffix}"] = trigger
 
 ---
 
-### Bug 4 🟡 MEDIUM — `mvdi` 对 SHORT 方向语义反向
+### Bug 4 ✅ FIXED — `mvdi` 对 SHORT 方向语义反向
 
 **文件**：`src/features/timeframe.py`  
 **位置**：L200 附近（`mvdi` 计算）
@@ -165,10 +166,10 @@ out[f"mvdi{suffix}"] = raw_mvdi if direction == "long" else -raw_mvdi
 | `bsipi` | ✅ 已翻转 | — | 正确 |
 | `cbfi_ema` | ✅ 已翻转 | — | 正确 |
 | `cti`（cross-tf） | ✅ 已翻转 | — | 正确 |
-| `tbr_trend` | ❌ 未翻转 | 🔴 HIGH | Bug 2 |
-| `trigger_score` | ❌ 未翻转 | 🟡 MEDIUM | Bug 3 |
-| `release_phase` | ❌ 未翻转 | 🟡 MEDIUM | 依赖 trigger_score，Bug 3 的衍生 |
-| `mvdi` | ❌ 未翻转 | 🟡 MEDIUM | Bug 4 |
+| `tbr_trend` | ✅ 已翻转 | — | Bug 2 已修复（v1.0.2） |
+| `trigger_score` | ✅ 已翻转 | — | Bug 3 已修复（v1.0.2） |
+| `release_phase` | ✅ 已修复 | — | 依赖 trigger_score，随 Bug 3 自动修正 |
+| `mvdi` | ✅ 已翻转 | — | Bug 4 已修复（v1.0.2） |
 | `taker_buy_ratio` | — 中性 | 🟢 OK | 原始值，模型可学双向 |
 | `vol_inefficiency` | — 中性 | 🟢 OK | 用 `abs(roc1)`，天然无方向 |
 | `roc1/3/5` | — 原始值 | 🟢 OK | 模型从标签学方向关系 |
@@ -210,16 +211,16 @@ out[f"mvdi{suffix}"] = raw_mvdi if direction == "long" else -raw_mvdi
 
 ---
 
-## 修复优先级
+## 修复状态
 
-| 步骤 | 操作 | 优先级 | 文件 |
-|------|------|--------|------|
-| 1 | 修复 `indicator.py` direction 传参（Bug 1） | 🔴 立即 | `src/live/indicator.py` L60 |
-| 2 | 翻转 `tbr_trend`（Bug 2） | 🔴 重训前 | `src/features/timeframe.py` L174 |
-| 3 | 翻转 `trigger_score`（Bug 3） | 🟡 重训前 | `src/features/timeframe.py` L166 |
-| 4 | 翻转 `mvdi`（Bug 4） | 🟡 重训前 | `src/features/timeframe.py` L200 |
-| 5 | 重训 SHORT v1.1 模型 | 🟡 修复后 | `scripts/train_model.py` |
-| 6 | 验证 SHORT 实盘胜率恢复 | 🟢 重训后 | 实盘观察 |
+| 步骤 | 操作 | 状态 | 文件 |
+|------|------|------|------|
+| 1 | 修复 `indicator.py` direction 传参（Bug 1） | ✅ 已完成 | `src/live/indicator.py` L60 |
+| 2 | 翻转 `tbr_trend`（Bug 2） | ✅ 已完成 | `src/features/timeframe.py` L174 |
+| 3 | 翻转 `trigger_score`（Bug 3） | ✅ 已完成 | `src/features/timeframe.py` L166 |
+| 4 | 翻转 `mvdi`（Bug 4） | ✅ 已完成 | `src/features/timeframe.py` L200 |
+| 5 | 重训 SHORT v1.0.2 模型 | ✅ 已完成 | `models/v1.0.2/short` |
+| 6 | 验证 SHORT 实盘胜率恢复 | ⏳ 待实盘观察 | — |
 
 步骤 2–4 必须**同时**修复再重训，分批修复会产生新的中间版本不一致问题。
 

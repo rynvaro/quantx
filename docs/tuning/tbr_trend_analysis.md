@@ -1,6 +1,8 @@
 # tbr_trend 特征分析与调整方案
 
 > 创建日期：2026-05-05  
+> 修复日期：2026-05-05  
+> 状态：**✅ 已修复**（feature/v1.0.2，commit 08110d1）  
 > 相关文件：`src/features/timeframe.py` L171–174、`src/live/indicator.py` L60
 
 ---
@@ -76,7 +78,7 @@ LONG 模型和 SHORT 模型拿到的 `tbr_trend` 数值完全一样，但两个�
 
 SHORT 模型必须自己从训练数据里学到"正的 tbr_trend 对我不好"这个反向关系，但实际上它没学对——实盘中 SHORT 模型在 tbr_trend 上升（市场反弹）期间仍然持续触发 SHORT。
 
-### 额外发现：live 推理时 direction 参数未传入 compute_features
+### 额外发现：live 推理时 direction 参数未传入 compute_features（✅ 已修复）
 
 `src/live/indicator.py` L60：
 ```python
@@ -148,14 +150,14 @@ feat = compute_features(df_raw, tf, include_p2=False, direction=direction)
 
 ---
 
-## 五、优先级与实施顺序
+## 五、实施状态
 
-| 步骤 | 操作 | 优先级 |
-|------|------|--------|
-| 1 | 修复 `indicator.py` direction 传参 | 🔴 立即，影响所有方向感知特征 |
-| 2 | 在 `timeframe.py` 为 SHORT 翻转 `tbr_trend` | 🟡 下次重训前 |
-| 3 | 重训 SHORT 模型 | 🟡 与步骤 2 一起 |
-| 4 | 验证新 SHORT 模型实盘胜率 | 🟢 重训后观察 |
+| 步骤 | 操作 | 状态 |
+|------|------|------|
+| 1 | 修复 `indicator.py` direction 传参 | ✅ 已完成 |
+| 2 | 在 `timeframe.py` 为 SHORT 翻转 `tbr_trend` | ✅ 已完成 |
+| 3 | 重训 SHORT 模型（v1.0.2） | ✅ 已完成 |
+| 4 | 验证新 SHORT 模型实盘胜率 | ⏳ 待实盘观察 |
 
 ---
 
