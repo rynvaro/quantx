@@ -55,22 +55,46 @@ feat = compute_features(df_raw, tf, include_p2=False, direction=direction)
 ```python
 # 当前（BUG）：两个方向使用完全相同的公式
 out[f"tbr_trend{suffix}"] = tbr.rolling(5).mean() - tbr.rolling(15).mean()
-
-# 应为：
-if direction == "long":
-    out[f"tbr_trend{suffix}"] = tbr.rolling(5).mean() - tbr.rolling(15).mean()
-else:
-    # TSR（卖方占比）趋势 = -(TBR 趋势)；正值代表卖压增强
-    out[f"tbr_trend{suffix}"] = tbr.rolling(15).mean() - tbr.rolling(5).mean()
 ```
 
 **影响**：
-- LONG 模型：`tbr_trend > 0` = 买方增强 = 利好 ✅
-- SHORT 模型：`tbr_trend > 0` = 买方增强 = **不利**，但模型收到正信号 ❌
+- LONG 模型：`tbr_trend > 0` = 买方动能增强 = 利好 ✅
+- SHORT 模型：`tbr_trend > 0` = 买方动能增强 = **不利**，但模型收到正信号 ❌
 
 v1.0.1 SHORT 胜率从 v1 的 40.0% 跌至 22.2%（-17.8pp），直接归因于此 bug（v1 没有 `tbr_trend` 特征）。
 
 **为什么会出现**：`tbr_trend` 是 v1.0.1 新增特征，加入时直接复制 LONG 写法，未按 `bsipi` 的模式考虑 SHORT 方向翻转。
+
+#### 解决方案（方案 A — 原地翻转）
+
+**核心思路**：对 SHORT 方向，将存入 `tbr_trend` 的值翻转为 `MA15 - MA5`，即"卖方动能趋势（TSR trend）"：
+- 概念上：SHORT 下的 `tbr_trend` 存的是 `TSR_trend = -(TBR_trend) = MA15 - MA5`
+- 正值含义变为：卖方动能增强 → 利好 SHORT ✅
+- 列名仍为 `tbr_trend`（不新增列），两个方向特征集保持完全对齐（均 137 列）
+
+```python
+# src/features/timeframe.py，将 L174 替换为：
+ma5  = tbr.rolling(5).mean()
+ma15 = tbr.rolling(15).mean()
+if direction == "long":
+    # TBR trend：正值 = 买方动能增强 = 利好 LONG
+    out[f"tbr_trend{suffix}"] = ma5 - ma15
+else:
+    # TSR trend（存入同名列）：正值 = 卖方动能增强 = 利好 SHORT
+    # 等价于 -(tbr_trend_long)，即 MA15 - MA5
+    out[f"tbr_trend{suffix}"] = ma15 - ma5
+```
+
+**为什么不单独创建 `tsr_trend` 新列**：
+
+如果为 SHORT 添加一个新列 `tsr_trend` 而保留 `tbr_trend`：
+- SHORT 特征集变为 138 列，LONG 为 137 列 → 两个模型特征集不对称
+- SHORT 中 `tbr_trend` 仍然语义反向（未修复）
+- 需要在训练/推理管道中单独处理列对齐
+
+方案 A 的原地翻转更干净：同一列名，LONG 和 SHORT 语义对称，无需改动任何其他地方。
+
+**代价**：需要重新训练 SHORT 模型（训练数据中 `tbr_trend` 的数值会变化）。
 
 ---
 

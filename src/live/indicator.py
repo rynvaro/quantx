@@ -57,7 +57,7 @@ def compute_live_features(
         df_raw = klines[tf]
         if df_raw.empty:
             continue
-        feat = compute_features(df_raw, tf, include_p2=False)
+        feat = compute_features(df_raw, tf, include_p2=False, direction=direction)
 
         if tf == "1m":
             aligned = _align_1m(feat, base_index)

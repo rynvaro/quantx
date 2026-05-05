@@ -151,7 +151,13 @@ def _add_micro_features(
     out[f"roc_accel5{suffix}"] = accel5
     out[f"volume_accel{suffix}"] = vol_accel
 
-    trigger = accel5 * vol_accel.clip(lower=0.0)
+    # trigger_score: direction-aware spring release signal.
+    # LONG: positive accel5 * volume surge = upward burst.
+    # SHORT: negate accel5 so positive trigger = downward burst.
+    if direction == "long":
+        trigger = accel5 * vol_accel.clip(lower=0.0)
+    else:
+        trigger = (-accel5) * vol_accel.clip(lower=0.0)
     out[f"trigger_score{suffix}"] = trigger
 
     if direction == "long":
@@ -168,10 +174,16 @@ def _add_micro_features(
     tbr = taker_buy / vol.replace(0.0, np.nan)
     out[f"taker_buy_ratio{suffix}"] = tbr
 
-    # tbr_trend: short-term taker_buy_ratio MA minus long-term MA.
-    # Positive = buy pressure building (leads price up); negative = selling pressure.
+    # tbr_trend: direction-aware momentum trend of taker buy/sell ratio.
+    # LONG: MA5 - MA15 of TBR; positive = buy pressure building = bullish.
+    # SHORT: MA15 - MA5 of TBR (= TSR trend); positive = sell pressure building = bearish.
     # Short window=5 bars, long window=15 bars — balances sensitivity vs noise.
-    out[f"tbr_trend{suffix}"] = tbr.rolling(5).mean() - tbr.rolling(15).mean()
+    _tbr_ma5  = tbr.rolling(5).mean()
+    _tbr_ma15 = tbr.rolling(15).mean()
+    if direction == "long":
+        out[f"tbr_trend{suffix}"] = _tbr_ma5 - _tbr_ma15
+    else:
+        out[f"tbr_trend{suffix}"] = _tbr_ma15 - _tbr_ma5
 
     if direction == "long":
         consec = consecutive_true(cl > cl.shift(1))
@@ -196,7 +208,9 @@ def _add_micro_features(
     atr_mean50 = atr14.rolling(50).mean().replace(0.0, np.nan)
     norm_roc5 = roc5 / roc5_std
     norm_atr = atr14 / atr_mean50
-    out[f"mvdi{suffix}"] = norm_roc5 / norm_atr.replace(0.0, np.nan)
+    # mvdi: direction-aware. LONG: positive = upward momentum; SHORT: negate so positive = downward momentum.
+    _raw_mvdi = norm_roc5 / norm_atr.replace(0.0, np.nan)
+    out[f"mvdi{suffix}"] = _raw_mvdi if direction == "long" else -_raw_mvdi
 
     # pei: price impact = |Δclose| / volume; EMA(5)/EMA(20) - 1
     impact = cl.diff().abs() / vol.replace(0.0, np.nan)
