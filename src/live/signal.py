@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
@@ -71,7 +72,11 @@ def predict(
     if nan_count == X.size:
         return float("nan"), float("nan"), float("nan")
 
-    raw_prob = model_cls.predict_proba(X)[:, 1]
+    raw_prob = (
+        model_cls.predict(X)
+        if isinstance(model_cls, lgb.Booster)
+        else model_cls.predict_proba(X)[:, 1]
+    )
     cal_prob = calibrator.predict_proba(raw_prob.reshape(-1, 1))[:, 1]
     y_max    = float(model_max.predict(X)[0])
     y_min    = float(model_min.predict(X)[0])
