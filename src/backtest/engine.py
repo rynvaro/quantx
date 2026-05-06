@@ -26,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import lightgbm as lgb
 from xgboost import XGBClassifier, XGBRegressor
 
 log = logging.getLogger(__name__)
@@ -87,21 +88,27 @@ class BacktestEngine:
 
     def __init__(self, config: BacktestConfig | None = None):
         self.cfg = config or BacktestConfig()
-        self._model_cls: XGBClassifier | None = None
-        self._model_max: XGBRegressor  | None = None
+        self._model_cls = None
+        self._model_max = None
         self._calibrator = None
         self._feat_cols: list[str] = []
+        self._lgb_backend: bool = False
 
     # ── Model loading ─────────────────────────────────────────────────────────
 
     def load_models(self, model_dir: Path) -> None:
         model_dir = Path(model_dir)
 
-        self._model_cls = XGBClassifier()
-        self._model_cls.load_model(model_dir / "model_cls.json")
-
-        self._model_max = XGBRegressor()
-        self._model_max.load_model(model_dir / "model_max.json")
+        if (model_dir / "model_cls.lgb").exists():
+            self._model_cls = lgb.Booster(model_file=str(model_dir / "model_cls.lgb"))
+            self._model_max = lgb.Booster(model_file=str(model_dir / "model_max.lgb"))
+            self._lgb_backend = True
+        else:
+            self._model_cls = XGBClassifier()
+            self._model_cls.load_model(model_dir / "model_cls.json")
+            self._model_max = XGBRegressor()
+            self._model_max.load_model(model_dir / "model_max.json")
+            self._lgb_backend = False
 
         with open(model_dir / "calibrator.pkl", "rb") as f:
             self._calibrator = pickle.load(f)
@@ -117,7 +124,10 @@ class BacktestEngine:
         Rows not in df (filtered out) are not scored.
         """
         X = df[self._feat_cols].values.astype(np.float32)
-        raw = self._model_cls.predict_proba(X)[:, 1]
+        if self._lgb_backend:
+            raw = self._model_cls.predict(X)
+        else:
+            raw = self._model_cls.predict_proba(X)[:, 1]
         cal = self._calibrator.predict_proba(raw.reshape(-1, 1))[:, 1]
         return pd.Series(cal, index=df.index, name="signal_prob")
 

@@ -77,6 +77,12 @@ def _parse_args() -> argparse.Namespace:
         metavar="INT",
         help="Gap days between train end and val start (leakage buffer).",
     )
+    parser.add_argument(
+        "--model",
+        choices=["xgb", "lgb"],
+        default="xgb",
+        help="Model backend: xgb (XGBoost, default) or lgb (LightGBM).",
+    )
     return parser.parse_args()
 
 
@@ -87,7 +93,12 @@ def main() -> None:
     _DATA_DIR = Path("data/processed/v1")
     _MODELS_DIR = Path("models/v1")
     input_path = args.input or _DATA_DIR / f"features_thr005_h30_{args.direction}.parquet"
-    output_dir = args.output or _MODELS_DIR / args.direction
+    if args.output:
+        output_dir = args.output
+    elif args.model == "lgb":
+        output_dir = _MODELS_DIR.parent / ("v1.0.2.light") / args.direction
+    else:
+        output_dir = _MODELS_DIR / args.direction
 
     if not input_path.exists():
         print(f"ERROR: input file not found: {input_path}", file=sys.stderr)
@@ -99,6 +110,7 @@ def main() -> None:
         n_folds=args.n_folds,
         val_months=args.val_months,
         gap_days=args.gap_days,
+        backend=args.model,
     )
 
 

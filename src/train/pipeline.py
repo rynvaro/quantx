@@ -71,6 +71,7 @@ def run(
     n_folds: int = 6,
     val_months: int = 4,
     gap_days: int = 5,
+    backend: str = "xgb",
 ) -> None:
     """
     Full training pipeline.
@@ -82,6 +83,7 @@ def run(
     n_folds      : number of walk-forward folds.
     val_months   : validation window size in months per fold.
     gap_days     : days gap between train end and val start.
+    backend      : "xgb" (XGBoost, default) or "lgb" (LightGBM).
     """
     t0 = time.time()
 
@@ -117,10 +119,14 @@ def run(
         model_cls, model_max, model_min = train_fold(
             X_tr, y_cls_tr, y_max_tr, y_min_tr,
             X_va, y_cls_va, y_max_va, y_min_va,
+            backend=backend,
         )
 
         # OOF classifier scores (raw, before calibration)
-        raw_scores = model_cls.predict_proba(X_va)[:, 1]
+        if backend == "lgb":
+            raw_scores = model_cls.predict_proba(X_va)[:, 1]
+        else:
+            raw_scores = model_cls.predict_proba(X_va)[:, 1]
         oof_scores[va_idx] = raw_scores
 
         # Predictions for regression heads (now on ALL validation samples)
@@ -159,10 +165,11 @@ def run(
     final_cls, final_max, final_min = train_fold(
         X, y_cls, y_max, y_min,
         X_last_va, y_cls_last, y_max_last, y_min_last,
+        backend=backend,
     )
 
     # ── 7. Save artifacts ─────────────────────────────────────────────────────
-    save_models(final_cls, final_max, final_min, calibrator, output_dir)
+    save_models(final_cls, final_max, final_min, calibrator, output_dir, backend=backend)
 
     # Save feature column list alongside models (needed for inference)
     feat_col_path = output_dir / "feature_cols.txt"
