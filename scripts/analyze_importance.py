@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze feature importance from trained XGBoost models."""
+"""Analyze feature importance from trained XGBoost or LightGBM models."""
 
 import argparse
 import json
@@ -9,47 +9,59 @@ import pandas as pd
 
 
 def analyze_model(model_dir: Path, direction: str) -> None:
-    """Extract and display feature importance from XGBoost model."""
-    model_path = model_dir / "model_cls.json"
+    """Extract and display feature importance from XGBoost or LightGBM model."""
     feature_cols_path = model_dir / "feature_cols.txt"
+    lgb_path = model_dir / "model_cls.lgb"
+    xgb_path = model_dir / "model_cls.json"
 
-    if not model_path.exists():
-        print(f"ERROR: {model_path} not found")
-        return
     if not feature_cols_path.exists():
         print(f"ERROR: {feature_cols_path} not found")
         return
 
-    # Load feature names
     with open(feature_cols_path) as f:
         feature_names = [line.strip() for line in f if line.strip()]
 
-    # Load model and extract importance
-    with open(model_path) as f:
-        model_json = json.load(f)
-
-    # XGBoost JSON format: feature_importances in learner.feature_names/feature_types
-    # We'll use get_score() equivalent from JSON
-    importance_dict = {}
-
-    # Parse trees to count feature splits (gain-based importance)
-    trees = model_json.get("learner", {}).get("gradient_booster", {}).get("model", {}).get("trees", [])
-
-    for tree in trees:
-        for node in tree.get("split_indices", []):
-            if node >= 0 and node < len(feature_names):
-                importance_dict[feature_names[node]] = importance_dict.get(feature_names[node], 0) + 1
-
-    if not importance_dict:
-        print("WARNING: Could not extract importance from JSON. Using simple feature count.")
-        # Fallback: just list features
-        importance_dict = {name: 1 for name in feature_names}
-
-    # Sort by importance
-    importance_df = pd.DataFrame([
-        {"feature": k, "importance": v}
-        for k, v in sorted(importance_dict.items(), key=lambda x: -x[1])
-    ])
+    if lgb_path.exists():
+        # ── LightGBM path ──────────────────────────────────────────
+        import lightgbm as lgb
+        booster = lgb.Booster(model_file=str(lgb_path))
+        gains = booster.feature_importance(importance_type="gain")
+        names = booster.feature_name()
+        # Map generic Column_N names back to real feature names via index
+        if names and names[0].startswith("Column_"):
+            names = [
+                feature_names[int(n.split("_")[1])] if n.startswith("Column_") else n
+                for n in names
+            ]
+        importance_df = (
+            pd.DataFrame({"feature": names, "importance": gains})
+            .sort_values("importance", ascending=False)
+            .reset_index(drop=True)
+        )
+    elif xgb_path.exists():
+        # ── XGBoost path ───────────────────────────────────────────
+        with open(xgb_path) as f:
+            model_json = json.load(f)
+        importance_dict: dict[str, int] = {}
+        trees = (model_json.get("learner", {})
+                           .get("gradient_booster", {})
+                           .get("model", {})
+                           .get("trees", []))
+        for tree in trees:
+            for node in tree.get("split_indices", []):
+                if 0 <= node < len(feature_names):
+                    importance_dict[feature_names[node]] = (
+                        importance_dict.get(feature_names[node], 0) + 1
+                    )
+        if not importance_dict:
+            importance_dict = {name: 1 for name in feature_names}
+        importance_df = pd.DataFrame([
+            {"feature": k, "importance": v}
+            for k, v in sorted(importance_dict.items(), key=lambda x: -x[1])
+        ])
+    else:
+        print(f"ERROR: no model file found in {model_dir}")
+        return
 
     print(f"\n{'='*60}")
     print(f"Feature Importance: {direction.upper()} model")

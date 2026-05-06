@@ -4,7 +4,9 @@ LOG_DIR  := logs
 
 # ── Version control ───────────────────────────────────────────────────────────
 # Override on the command line: make start-bg VERSION=v1.0.1
-VERSION  ?= v1
+VERSION        ?= v1
+THRESHOLD      ?= 0.60
+MODEL_BACKEND  ?= xgb
 LOG_FILE  = $(LOG_DIR)/signal_$(VERSION).log
 PID_FILE  = $(LOG_DIR)/signal_$(VERSION).pid
 DATA_DIR  = data/processed/$(VERSION)
@@ -37,7 +39,7 @@ init: | _logs_dir
 
 ## start   — run in foreground (Ctrl-C to stop)
 start:
-	$(PYTHON) $(SCRIPT) --long-model-dir $(MODEL_DIR)/long --short-model-dir $(MODEL_DIR)/short
+	$(PYTHON) $(SCRIPT) --long-model-dir $(MODEL_DIR)/long --short-model-dir $(MODEL_DIR)/short --threshold $(THRESHOLD)
 
 ## start-bg — run in background, log to logs/signal_$(VERSION).log
 start-bg: | _logs_dir
@@ -49,6 +51,7 @@ start-bg: | _logs_dir
 		nohup $(PYTHON) -u $(SCRIPT) \
 			--long-model-dir $(MODEL_DIR)/long \
 			--short-model-dir $(MODEL_DIR)/short \
+			--threshold $(THRESHOLD) \
 			>> $(LOG_FILE) 2>&1 & \
 		echo $$! > $(PID_FILE); \
 		echo "Started VERSION=$(VERSION) (PID $$(cat $(PID_FILE))) — log: $(LOG_FILE)"; \
@@ -112,12 +115,12 @@ build-features: | _logs_dir
 ## train — train long + short models (VERSION controls input/output paths)
 ##   make train VERSION=v1.0.1
 train:
-	@echo "Training LONG model → $(MODEL_DIR)/long"
-	$(PYTHON) scripts/train_model.py --direction long \
+	@echo "Training LONG model → $(MODEL_DIR)/long  (backend=$(MODEL_BACKEND))"
+	$(PYTHON) scripts/train_model.py --model $(MODEL_BACKEND) --direction long \
 		--input $(DATA_DIR)/features_thr005_h30_long.parquet \
 		--output $(MODEL_DIR)/long
-	@echo "Training SHORT model → $(MODEL_DIR)/short"
-	$(PYTHON) scripts/train_model.py --direction short \
+	@echo "Training SHORT model → $(MODEL_DIR)/short  (backend=$(MODEL_BACKEND))"
+	$(PYTHON) scripts/train_model.py --model $(MODEL_BACKEND) --direction short \
 		--input $(DATA_DIR)/features_thr005_h30_short.parquet \
 		--output $(MODEL_DIR)/short
 
