@@ -4,7 +4,24 @@
       "Bash(git add *)",
       "Bash(git commit -m 'docs: add version management guide and analysis report *)",
       "Bash(git checkout *)",
-      "Bash(git commit -m 'feat: configure v1 branch to use data/processed/v1 and models/v1 *)"
+      "Bash(git commit -m 'feat: configure v1 branch to use data/processed/v1 and models/v1 *)",
+      "Bash(git commit -m 'feat: configure v2 branch to use data/processed/v2 and models/v2 *)",
+      "Bash(git commit -m 'feat: configure v3 branch to use data/processed/v3 and models/v3 *)",
+      "Bash(git commit -m 'feat: update v3 branch configuration for versioned paths *)",
+      "Bash(git commit *)",
+      "Bash(git cherry-pick *)",
+      "Bash(git stash *)",
+      "Bash(python -m py_compile src/live/pattern_matcher.py)",
+      "Bash(python -m py_compile scripts/run_signal.py)",
+      "Bash(python -c \"import pandas as pd; df = pd.read_parquet\\('data/processed/v1/features_thr005_h30_long.parquet'\\); print\\(f'Long samples: {len\\(df\\):,}'\\); print\\(f'Date range: {df.index.min\\(\\)} to {df.index.max\\(\\)}'\\); print\\(f'Missing values: {df.isnull\\(\\).sum\\(\\).sum\\(\\)}'\\); print\\(f'Columns: {len\\(df.columns\\)}'\\)\")",
+      "Bash(tmux send-keys *)",
+      "Bash(tmux capture-pane *)",
+      "Bash(python3 -c ' *)",
+      "Bash(python scripts/download_data.py --intervals 3m)",
+      "Bash(python3 scripts/download_data.py --intervals 1d 1w)",
+      "Bash(curl -s 'https://fapi.binance.com/fapi/v1/klines?symbol=ETHUSDT&interval=5m&limit=576')",
+      "Bash(python3)",
+      "Bash(curl -s 'https://fapi.binance.com/fapi/v1/klines?symbol=ETHUSDT&interval=5m&startTime=1745726400000&endTime=1745733600000')"
     ]
   }
 }
