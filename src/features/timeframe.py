@@ -277,7 +277,7 @@ def _add_medium_features(out: dict, df: pd.DataFrame, suffix: str) -> None:
     out[f"hl_position{suffix}"] = hl_position(hi, lo, cl, 50)
     out[f"vol_ma_ratio{suffix}"] = vol_ma_ratio(vol, 20)
 
-    # trend_score_1h: EMA9/21/55 alignment (same formula as 4h)
+    # trend_score_1h: EMA9/21/55 alignment (note: s3 anchors on ema55, unlike 4h which uses ema200)
     ema9_1h = ema(cl, 9)
     ema21_1h = ema(cl, 21)
     ema55_1h = ema(cl, 55)
