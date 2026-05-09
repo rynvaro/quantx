@@ -52,8 +52,39 @@ def _align_to_5m(feat_df: pd.DataFrame, base_index: pd.DatetimeIndex) -> pd.Data
     return aligned
 
 
-def _align_coarse(feat_df: pd.DataFrame, base_index: pd.DatetimeIndex) -> pd.DataFrame:
-    """Align coarser-than-5m features onto 5m base with forward-fill."""
+# Duration of each timeframe bar.  Features of bar T are only *available*
+# after bar T closes (= open_time + duration), so we shift the feature index
+# forward by this amount before reindexing onto the 5m base.
+# 5m is intentionally absent: on the 5m base the bar's features are ready
+# exactly when the bar closes, so no shift is needed.
+_TF_CLOSE_OFFSET: dict[str, pd.Timedelta] = {
+    "15m": pd.Timedelta("15min"),
+    "1h":  pd.Timedelta("1h"),
+    "4h":  pd.Timedelta("4h"),
+}
+
+
+def _align_coarse(
+    feat_df: pd.DataFrame,
+    base_index: pd.DatetimeIndex,
+    tf: str,
+) -> pd.DataFrame:
+    """Align coarser-than-5m features onto the 5m base with forward-fill.
+
+    For 15m / 1h / 4h the feature index is shifted forward by the bar's
+    duration so that bar-T's values are only visible to 5m bars that open
+    *after* bar T has closed.  This prevents look-ahead bias.
+
+    Example (1h):
+      bar open_time=08:00 closes at 09:00
+      → shifted index entry = 09:00
+      → 5m bars 08:00-08:55 see the *previous* completed 1h bar (07:00)
+      → 5m bar 09:00 is the first to see the 08:00 1h bar  ✓
+    """
+    offset = _TF_CLOSE_OFFSET.get(tf)
+    if offset is not None:
+        feat_df = feat_df.copy()
+        feat_df.index = feat_df.index + offset
     return feat_df.reindex(base_index, method="ffill")
 
 
@@ -267,7 +298,7 @@ def run(
         if tf == "1m":
             aligned = _align_1m(feat, base_index)
         else:
-            aligned = _align_coarse(feat, base_index)
+            aligned = _align_coarse(feat, base_index, tf)
 
         feat_parts.append(aligned)
         log.info("    → %d columns", aligned.shape[1])

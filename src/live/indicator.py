@@ -62,7 +62,7 @@ def compute_live_features(
         if tf == "1m":
             aligned = _align_1m(feat, base_index)
         else:
-            aligned = _align_coarse(feat, base_index)
+            aligned = _align_coarse(feat, base_index, tf)
 
         feat_parts.append(aligned)
 
