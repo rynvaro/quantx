@@ -206,8 +206,8 @@ def _seconds_to_next_bar() -> float:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Live ETH/USDT signal monitor")
     parser.add_argument("--threshold",       type=float, default=0.60)
-    parser.add_argument("--long-model-dir",  type=Path,  default=Path("models/v1/long"))
-    parser.add_argument("--short-model-dir", type=Path,  default=Path("models/v1/short"))
+    parser.add_argument("--long-model-dir",  type=Path,  default=Path("models/v1.0.3/long"))
+    parser.add_argument("--short-model-dir", type=Path,  default=Path("models/v1.0.3/short"))
     parser.add_argument(
         "--once", action="store_true",
         help="Run once immediately and exit",
