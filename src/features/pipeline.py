@@ -168,6 +168,9 @@ def _add_time_features(df: pd.DataFrame, direction: str = "long") -> pd.DataFram
     if funding_rate is not None:
         sign = 1.0 if direction == "long" else -1.0
         df["funding_pressure"] = funding_rate * sign
+        # Drop raw funding_rate: funding_pressure already encodes direction.
+        # Keeping both would introduce a perfectly-correlated duplicate for long models.
+        df.drop(columns=["funding_rate"], inplace=True)
 
     # Legacy columns (kept for backwards-compatibility)
     df["hour_of_day"] = df.index.hour
