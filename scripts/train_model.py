@@ -77,6 +77,12 @@ def _parse_args() -> argparse.Namespace:
         metavar="INT",
         help="Gap days between train end and val start (leakage buffer).",
     )
+    parser.add_argument(
+        "--version",
+        default="v1.0.3",
+        metavar="VERSION",
+        help="Version subdirectory for data/processed/ and models/ (default: v1.0.3)",
+    )
     return parser.parse_args()
 
 
@@ -84,8 +90,8 @@ def main() -> None:
     args = _parse_args()
 
     # Auto-infer input/output from direction if not explicitly provided
-    _DATA_DIR = Path("data/processed/v1")
-    _MODELS_DIR = Path("models/v1")
+    _DATA_DIR = Path("data/processed") / args.version
+    _MODELS_DIR = Path("models") / args.version
     input_path = args.input or _DATA_DIR / f"features_thr005_h30_{args.direction}.parquet"
     output_dir = args.output or _MODELS_DIR / args.direction
 

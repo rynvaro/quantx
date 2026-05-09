@@ -105,6 +105,29 @@ def _add_cross_tf_features(df: pd.DataFrame, direction: str = "long") -> pd.Data
             ).astype(float)
             df["cti"] = vcdi * (-ts).clip(lower=0.0) * trend_ok
 
+    # ── v1.0.3: Cross-TF divergence features ─────────────────────────────────
+    rsi14_5m = df.get("rsi14_5m")
+    rsi14_1h = df.get("rsi14_1h")
+    rsi7_5m  = df.get("rsi7_5m")
+    rsi7_1h  = df.get("rsi7_1h")
+    bb_pos_5m = df.get("bb_position_5m")
+    bb_pos_1h = df.get("bb_position_1h")
+    atr14_1m  = df.get("atr14_1m")
+    atr14_5m  = df.get("atr14_5m")
+
+    if rsi14_5m is not None and rsi14_1h is not None:
+        df["rsi_diff_5m_1h"] = rsi14_5m - rsi14_1h
+
+    if rsi7_5m is not None and rsi7_1h is not None:
+        df["rsi7_diff_5m_1h"] = rsi7_5m - rsi7_1h
+
+    if bb_pos_5m is not None and bb_pos_1h is not None:
+        df["bb_pos_diff_5m_1h"] = bb_pos_5m - bb_pos_1h
+
+    if atr14_1m is not None and atr14_5m is not None:
+        safe_5m = atr14_5m.replace(0.0, np.nan)
+        df["atr14_1m_vs_5m"] = atr14_1m / safe_5m
+
     return df
 
 
@@ -119,7 +142,34 @@ def _align_funding(df_funding: pd.DataFrame, base_index: pd.DatetimeIndex) -> pd
 # ─── Time features ────────────────────────────────────────────────────────────
 
 
-def _add_time_features(df: pd.DataFrame) -> pd.DataFrame:
+def _add_time_features(df: pd.DataFrame, direction: str = "long") -> pd.DataFrame:
+    """Add CST session, cycle, and funding-pressure features."""
+    # UTC → CST offset (+8)
+    hour_cst = (df.index.hour + 8) % 24
+
+    # Sinusoidal encoding of hour (avoids discontinuity at midnight)
+    df["hour_sin"] = np.sin(2 * np.pi * hour_cst / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * hour_cst / 24)
+
+    # Session flags (CST)
+    df["is_asia_session"] = ((hour_cst >= 1) & (hour_cst < 9)).astype(int)
+    df["is_eu_session"]   = ((hour_cst >= 9) & (hour_cst < 17)).astype(int)
+    df["is_us_session"]   = ((hour_cst >= 17) & (hour_cst < 23)).astype(int)
+    df["is_dead_zone"]    = (hour_cst == 0).astype(int)
+
+    # Minutes to next funding settlement (00/08/16 UTC), normalised to [0, 1]
+    # Funding settles at 0, 8, 16 UTC (every 480 minutes)
+    minutes_since_last = (df.index.hour * 60 + df.index.minute) % 480
+    minutes_to_next = (480 - minutes_since_last) % 480  # 0 at settlement
+    df["minutes_to_funding"] = minutes_to_next / 480.0
+
+    # Funding pressure: positive = unfavourable for the trade direction
+    funding_rate = df.get("funding_rate")
+    if funding_rate is not None:
+        sign = 1.0 if direction == "long" else -1.0
+        df["funding_pressure"] = funding_rate * sign
+
+    # Legacy columns (kept for backwards-compatibility)
     df["hour_of_day"] = df.index.hour
     df["day_of_week"] = df.index.dayofweek  # 0=Mon … 6=Sun
     return df
@@ -227,7 +277,7 @@ def run(
     merged["funding_rate"] = _align_funding(df_funding, base_index)
 
     # ── 5. Time features ─────────────────────────────────────────────────────
-    merged = _add_time_features(merged)
+    merged = _add_time_features(merged, direction=direction)
 
     # ── 6. Cross-timeframe features ───────────────────────────────────────────
     log.info("Computing cross-timeframe features (cpai, CTI) …")

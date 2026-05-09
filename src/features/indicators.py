@@ -247,3 +247,61 @@ def sample_entropy_rolling(series: pd.Series, window: int = 50) -> pd.Series:
         return float(-np.log((A + 1e-10) / (B + 1e-10)))
 
     return series.rolling(window, min_periods=window).apply(_sampent, raw=True)
+
+
+# ---------------------------------------------------------------------------
+# v1.0.3 additional indicators
+# ---------------------------------------------------------------------------
+
+def stochastic_k(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Stochastic %K — position of close within [low_min, high_max] over `period` bars.
+
+    Returns values in [0, 100]. Returns 50.0 when range is zero (flat market).
+    """
+    high_max = high.rolling(period, min_periods=period).max()
+    low_min = low.rolling(period, min_periods=period).min()
+    rng = high_max - low_min
+    k = (close - low_min) / rng.where(rng != 0.0, np.nan) * 100.0
+    return k.fillna(50.0)
+
+
+def hl_position(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 50) -> pd.Series:
+    """Position of close within the N-bar high/low range, mapped to [0, 1].
+
+    Returns NaN when the range is zero.
+    """
+    high_max = high.rolling(period, min_periods=period).max()
+    low_min = low.rolling(period, min_periods=period).min()
+    rng = high_max - low_min
+    return (close - low_min) / rng.where(rng != 0.0, np.nan)
+
+
+def atr_ratio(atr_series: pd.Series, period: int = 50) -> pd.Series:
+    """ATR relative to its rolling mean — measures whether volatility is elevated.
+
+    Returns NaN when the rolling mean is zero.
+    """
+    mean_atr = atr_series.rolling(period, min_periods=period).mean()
+    return atr_series / mean_atr.where(mean_atr != 0.0, np.nan)
+
+
+def vol_ma_ratio(volume: pd.Series, period: int = 20) -> pd.Series:
+    """Volume relative to its rolling mean — measures volume surge/drought.
+
+    Returns NaN when the rolling mean is zero.
+    """
+    mean_vol = volume.rolling(period, min_periods=period).mean()
+    return volume / mean_vol.where(mean_vol != 0.0, np.nan)
+
+
+def cvd_ema(taker_buy_volume: pd.Series, volume: pd.Series, span: int = 20) -> pd.Series:
+    """EMA of the per-bar CVD (taker buy - taker sell) fraction, scaled by total volume.
+
+    Positive → buyers dominating; negative → sellers dominating.
+    Returns zero when volume is zero.
+    """
+    safe_vol = volume.replace(0.0, np.nan)
+    taker_sell_volume = safe_vol - taker_buy_volume
+    cvd_bar = (taker_buy_volume - taker_sell_volume) / safe_vol
+    return cvd_bar.ewm(span=span, adjust=False).mean().fillna(0.0)
+

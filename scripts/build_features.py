@@ -94,6 +94,12 @@ def main() -> None:
         default="long",
         help="Trade direction: 'long' (default) or 'short'. Controls directional features and labels.",
     )
+    parser.add_argument(
+        "--version",
+        default="v1.0.3",
+        metavar="VERSION",
+        help="Output version subdirectory under data/processed/ (default: v1.0.3)",
+    )
 
     args = parser.parse_args()
 
@@ -102,7 +108,7 @@ def main() -> None:
         output_path = Path(args.output)
     else:
         thr_str = f"{int(round(args.threshold * 1000)):03d}"
-        output_path = OUTPUT_DIR / "v1" / f"features_thr{thr_str}_h{args.horizon}_{args.direction}.parquet"
+        output_path = OUTPUT_DIR / args.version / f"features_thr{thr_str}_h{args.horizon}_{args.direction}.parquet"
 
     if args.scan_threshold:
         _scan_thresholds(data_root, args.start, args.end, args.horizon)

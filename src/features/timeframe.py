@@ -17,6 +17,7 @@ from .indicators import (
     vwap_daily, rolling_pct_rank, consecutive_true,
     roc, roc_accel,
     autocorr_rolling, hurst_rolling, sample_entropy_rolling,
+    stochastic_k, hl_position, atr_ratio, vol_ma_ratio, cvd_ema,
 )
 
 # ─── Timeframe tiers ──────────────────────────────────────────────────────────
@@ -247,14 +248,43 @@ def _add_micro_features(
         out[f"hurst{suffix}"] = hurst_rolling(cl, window=100)
         out[f"sample_entropy{suffix}"] = sample_entropy_rolling(cl, window=50)
 
+    # ── v1.0.3: Additional TA indicators ─────────────────────────────────────
+    out[f"rsi7{suffix}"] = rsi(cl, 7)
+    out[f"adx{suffix}"] = adx(hi, lo, cl, 14)
+    out[f"stoch_k{suffix}"] = stochastic_k(hi, lo, cl, 14)
+    out[f"hl_position{suffix}"] = hl_position(hi, lo, cl, 50)
+    out[f"atr_ratio{suffix}"] = atr_ratio(atr14, 50)
+    out[f"vol_ma_ratio{suffix}"] = vol_ma_ratio(vol, 20)
+    if suffix == "_5m":
+        out[f"cvd{suffix}"] = cvd_ema(taker_buy, vol)
+
 
 # ─── Medium (1h) feature builders ────────────────────────────────────────────
 
 
 def _add_medium_features(out: dict, df: pd.DataFrame, suffix: str) -> None:
-    cl = df["close"]
+    cl, hi, lo, vol = df["close"], df["high"], df["low"], df["volume"]
     mhist = macd_histogram(cl)
     out[f"macd_zone{suffix}"] = np.sign(mhist)
+
+    # ── v1.0.3: Expanded 1h features ─────────────────────────────────────────
+    out[f"rsi7{suffix}"] = rsi(cl, 7)
+    out[f"adx{suffix}"] = adx(hi, lo, cl, 14)
+
+    bb_1h = bollinger_bands(cl, 20, 2.0)
+    out[f"bb_width_pct{suffix}"] = rolling_pct_rank(bb_1h["width"], 200)
+
+    out[f"hl_position{suffix}"] = hl_position(hi, lo, cl, 50)
+    out[f"vol_ma_ratio{suffix}"] = vol_ma_ratio(vol, 20)
+
+    # trend_score_1h: EMA9/21/55 alignment (same formula as 4h)
+    ema9_1h = ema(cl, 9)
+    ema21_1h = ema(cl, 21)
+    ema55_1h = ema(cl, 55)
+    s1 = np.sign(ema9_1h - ema21_1h)
+    s2 = np.sign(ema21_1h - ema55_1h)
+    s3 = np.sign(cl - ema55_1h)
+    out[f"trend_score{suffix}"] = (s1 + s2 + s3) / 3.0
 
 
 # ─── Macro (4h) feature builders ─────────────────────────────────────────────

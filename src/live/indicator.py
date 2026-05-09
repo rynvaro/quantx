@@ -80,7 +80,7 @@ def compute_live_features(
     merged["funding_rate"] = _align_funding(fr_series, base_index)
 
     # ── Time features ─────────────────────────────────────────────────────────
-    merged = _add_time_features(merged)
+    merged = _add_time_features(merged, direction=direction)
 
     # ── Cross-timeframe features (cpai, CTI) ──────────────────────────────────
     # direction must be passed so CTI uses the same trend_ok gate as training
